@@ -4,7 +4,6 @@ import time
 from datetime import datetime
 from flask import Flask
 from threading import Thread
-import random
 
 app = Flask('')
 
@@ -49,59 +48,59 @@ def fetch_price(symbol):
     except:
         return None
 
-def get_real_options_data(symbol):
+def fetch_all_prices():
+    prices = {}
+    for company in companies:
+        price = fetch_price(company)
+        if price:
+            prices[company] = price
+    return prices
+
+def fetch_option_strikes(symbol, expiry=None):
     try:
         url = f"https://query1.finance.yahoo.com/v7/finance/options/{symbol}"
-        headers = {"User-Agent": "Mozilla/5.0"}
-        response = requests.get(url, headers=headers)
-        data = response.json()
-        
-        expiration_dates = data['optionChain']['result'][0]['expirationDates']
-        nearest_expiry = datetime.fromtimestamp(expiration_dates[0]).strftime('%Y-%m-%d')
-        
-        calls = data['optionChain']['result'][0]['options'][0]['calls']
-        puts = data['optionChain']['result'][0]['options'][0]['puts']
-        all_strikes = sorted(list({c['strike'] for c in calls} | {p['strike'] for p in puts}))
-        
-        return {
-            'expiry': nearest_expiry,
-            'strikes': all_strikes,
-            'calls': calls,
-            'puts': puts
-        }
+        if expiry:
+            url += f"?date={expiry}"
+        resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}).json()
+        result = resp.get("optionChain", {}).get("result", [])
+        if not result:
+            return None, []
+        opts = result[0]
+        if not expiry:
+            expiry = opts["expirationDates"][0]
+        strikes = opts["options"][0]["calls"] + opts["options"][0]["puts"]
+        return expiry, strikes
     except Exception as e:
-        print(f"Error fetching options data for {symbol}: {e}")
-        return None
+        print(f"fetch_option_strikes error: {e}")
+        return None, []
 
 def generate_option_recommendation(symbol, price):
     try:
-        options_data = get_real_options_data(symbol)
-        if not options_data or not options_data['strikes']:
+        expiry_date, strikes = fetch_option_strikes(symbol)
+        if not strikes:
             return None
 
-        min_strike = price * 0.97
-        max_strike = price * 1.03
-        
-        valid_strikes = [s for s in options_data['strikes'] if min_strike <= s <= max_strike]
-        if not valid_strikes:
-            return None
-            
-        strike_price = random.choice(valid_strikes)
-        option_type = "CALL" if strike_price > price else "PUT"
-        
-        options_chain = options_data['calls'] if option_type == "CALL" else options_data['puts']
-        contract = next((c for c in options_chain if c['strike'] == strike_price), None)
-        if not contract:
-            return None
-            
-        contract_price = round(contract['lastPrice'], 2)
+        # أقرب سترايك للسعر الحالي
+        strikes_sorted = sorted(strikes, key=lambda x: abs(x["strike"] - price))
+        nearest = strikes_sorted[0]
+        strike_price = nearest["strike"]
+        option_type = "CALL" if nearest in strikes[:len(strikes)//2] else "PUT"
+
+        bid = nearest.get("bid")
+        ask = nearest.get("ask")
+        if bid is not None and ask is not None:
+            contract_price = round((bid + ask) / 2, 2)
+        else:
+            contract_price = round(price * 0.01, 2)
+
         target = round(contract_price * 3, 2)
+        expiry = datetime.utcfromtimestamp(expiry_date).strftime('%Y-%m-%d')
 
         return {
             "symbol": symbol,
             "type": option_type,
             "strike": strike_price,
-            "expiry": options_data['expiry'],
+            "expiry": expiry,
             "entry": contract_price,
             "target": target
         }
@@ -133,7 +132,7 @@ def main_loop():
 
     while True:
         now = datetime.utcnow()
-        if 13 <= now.hour <= 20:
+        if 13 <= now.hour <= 20:  # السوق الأمريكي 8 صباحًا - 3 مساءً بتوقيت نيويورك
             prices = fetch_all_prices()
             send_telegram_message(format_price_list(prices))
 
@@ -150,14 +149,6 @@ def main_loop():
                 send_telegram_message("متابعة الصفقة الحالية:\n" + format_trade(current_trade))
 
         time.sleep(3600)
-
-def fetch_all_prices():
-    prices = {}
-    for company in companies:
-        price = fetch_price(company)
-        if price:
-            prices[company] = price
-    return prices
 
 if __name__ == "__main__":
     main_loop()
