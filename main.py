@@ -38,20 +38,15 @@ def get_current_prices():
     prices = {}
     for name, data in stock_list.items():
         try:
-            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{data['symbol']}?interval=1m&range=1d"
+            url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={data['symbol']}"
             headers = {"User-Agent": "Mozilla/5.0"}
-            r = requests.get(url, headers=headers)
-            r.raise_for_status()
-            res = r.json()
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+            res = response.json()
 
-            # التأكد من وجود البيانات
-            if "chart" in res and "result" in res["chart"] and res["chart"]["result"]:
-                result = res["chart"]["result"][0]
-                close_prices = result["indicators"]["quote"][0].get("close", [])
-                if close_prices and close_prices[-1] is not None:
-                    prices[name] = f"${close_prices[-1]:.2f}"
-                else:
-                    prices[name] = "N/A"
+            price = res['quoteResponse']['result'][0].get('regularMarketPrice')
+            if price is not None:
+                prices[name] = f"${price:.2f}"
             else:
                 prices[name] = "N/A"
         except Exception as e:
