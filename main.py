@@ -95,7 +95,6 @@ def fetch_option_strikes(symbol):
 
 def generate_option_recommendation(symbol, price):
     try:
-        # تحليل آلاف الشمعات
         df = fetch_historical_data(symbol)
         if df is None or len(df) < 100:
             return None
@@ -111,23 +110,25 @@ def generate_option_recommendation(symbol, price):
         if not (ema_cross and rsi_valid):
             return None
 
-        # جلب سترايك حقيقي وسعر عقد
         expiry_date, strikes = fetch_option_strikes(symbol)
         if not strikes:
             return None
 
-        # أقرب سترايك للسعر الحالي
-        strikes_sorted = sorted(strikes, key=lambda x: abs(x["strike"] - price))
-        nearest = strikes_sorted[0]
+        # فلترة السترايكز للحصول على أقرب CALL و PUT بشكل دقيق
+        valid_calls = [s for s in strikes if s.get("contractSymbol", "").endswith("C")]
+        valid_puts = [s for s in strikes if s.get("contractSymbol", "").endswith("P")]
+        all_valid = valid_calls + valid_puts
+
+        nearest = min(all_valid, key=lambda x: abs(x["strike"] - price))
         strike_price = nearest["strike"]
-        option_type = "CALL" if nearest in strikes[:len(strikes)//2] else "PUT"
+        option_type = "CALL" if nearest in valid_calls else "PUT"
 
         bid = nearest.get("bid")
         ask = nearest.get("ask")
         if bid is not None and ask is not None and bid > 0 and ask > 0:
             contract_price = round((bid + ask) / 2, 2)
         else:
-            contract_price = round(price * 0.01, 2)
+            return None  # نرفض التوصية إذا السعر غير واضح
 
         target = round(contract_price * 3, 2)
         expiry = datetime.utcfromtimestamp(expiry_date).strftime('%Y-%m-%d')
