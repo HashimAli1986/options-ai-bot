@@ -1,6 +1,7 @@
 import requests
 import pandas as pd
 import time
+import random
 from datetime import datetime, time
 from flask import Flask
 from threading import Thread
@@ -22,7 +23,13 @@ def keep_alive():
 # إعدادات البوت
 BOT_TOKEN = "7560392852:AAGNoxFGThp04qMKTGEiIJN2eY_cahTv3E8"
 CHANNEL_ID = "@hashimAlico"
+companies = [
+    "MSTR", "APP", "AVGO", "SMCI", "GS",
+    "MU", "META", "AAPL", "COIN", "TSLA", "LLY"
+]
+ny_tz = timezone('America/New_York')
 
+# ---- وظائف أساسية ----
 def send_telegram_message(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     data = {"chat_id": CHANNEL_ID, "text": text, "parse_mode": "Markdown"}
@@ -31,16 +38,6 @@ def send_telegram_message(text):
     except Exception as e:
         print(f"Telegram Error: {e}")
 
-# قائمة الشركات
-companies = [
-    "MSTR", "APP", "AVGO", "SMCI", "GS",
-    "MU", "META", "AAPL", "COIN", "TSLA", "LLY"
-]
-
-current_trade = None
-ny_tz = timezone('America/New_York')
-
-# ---- وظائف جلب البيانات ----
 def fetch_price(symbol):
     try:
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1m"
@@ -50,6 +47,42 @@ def fetch_price(symbol):
     except:
         return None
 
+# ---- التوصية الإلزامية ----
+def generate_forced_recommendation():
+    symbol = random.choice(companies)
+    price = fetch_price(symbol)
+    if not price:
+        return None
+    
+    # تحليل بسيط
+    option_type = "CALL" if price > fetch_ema(symbol, 50) else "PUT"
+    strike = round(price * 1.02, 2) if option_type == "CALL" else round(price * 0.98, 2)
+    
+    return {
+        "symbol": symbol,
+        "type": option_type,
+        "strike": strike,
+        "expiry": next_friday(),
+        "entry": round(price * 0.02, 2),
+        "target": round(price * 0.06, 2)
+    }
+
+def next_friday():
+    now = datetime.now(ny_tz)
+    return (now + pd.DateOffset(days=(4 - now.weekday()) % 7)).strftime('%Y-%m-%d')
+
+# ---- تحديثات الأسعار ----
+def send_hourly_prices():
+    prices = {company: fetch_price(company) for company in companies}
+    price_list = "\n".join([f"▫️ {k}: ${v}" for k, v in prices.items() if v])
+    message = (
+        "📊 **تحديث أسعار الساعة**\n"
+        f"{price_list}\n"
+        f"⏱ {datetime.now(ny_tz).strftime('%Y-%m-%d %H:%M')}"
+    )
+    send_telegram_message(message)
+
+# ---- التحليل الفني ----
 def fetch_historical_data(symbol):
     try:
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=2y&interval=1d"
@@ -60,117 +93,50 @@ def fetch_historical_data(symbol):
     except:
         return None
 
-# ---- التحليل الفني ----
 def calculate_ema(series, span):
     return series.ewm(span=span, adjust=False).mean()
 
-def calculate_rsi(series, period=14):
-    delta = series.diff()
-    gain = delta.where(delta > 0, 0).rolling(window=period).mean()
-    loss = (-delta).where(delta < 0, 0).rolling(window=period).mean()
-    rs = gain / loss
-    return 100 - (100 / (1 + rs))
-
-# ---- معالجة الخيارات ----
-def fetch_option_chain(symbol):
-    try:
-        url = f"https://query1.finance.yahoo.com/v7/finance/options/{symbol}"
-        data = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}).json()
-        expiration_dates = data["optionChain"]["result"][0]["expirationDates"]
-        calls = data["optionChain"]["result"][0]["options"][0]["calls"]
-        puts = data["optionChain"]["result"][0]["options"][0]["puts"]
-        return expiration_dates, calls + puts
-    except:
-        return None, []
-
-def filter_contracts(contracts, price, option_type):
-    return [
-        c for c in contracts
-        if (c["strike"] > price * 0.97 and c["strike"] < price * 1.03) and
-        c["contractSymbol"].endswith("C" if option_type == "CALL" else "P") and
-        c["volume"] > 100 and
-        (c["ask"] - c["bid"]) / c["ask"] < 0.2
-    ]
-
-# ---- توليد التوصيات ----
-def generate_recommendation(symbol):
-    price = fetch_price(symbol)
-    if not price:
-        return None
-
-    # التحليل الفني
+def fetch_ema(symbol, period):
     df = fetch_historical_data(symbol)
-    if df is None or len(df) < 100:
-        return None
+    return df['close'].ewm(span=period).mean().iloc[-1] if df is not None else None
 
-    df["EMA9"] = calculate_ema(df["close"], 9)
-    df["EMA21"] = calculate_ema(df["close"], 21)
-    df["RSI"] = calculate_rsi(df["close"])
-
-    last = df.iloc[-1]
-    if not (last["EMA9"] > last["EMA21"] and 50 < last["RSI"] < 70):
-        return None
-
-    # معالجة الخيارات
-    exp_dates, contracts = fetch_option_chain(symbol)
-    if not exp_dates:
-        return None
-
-    expiry = datetime.fromtimestamp(exp_dates[0], tz=ny_tz).strftime('%Y-%m-%d')
-    calls = filter_contracts(contracts, price, "CALL")
-    puts = filter_contracts(contracts, price, "PUT")
-
-    best_contract = None
-    if calls:
-        best_contract = max(calls, key=lambda x: x["volume"])
-    elif puts:
-        best_contract = max(puts, key=lambda x: x["volume"])
-
-    if not best_contract:
-        return None
-
-    return {
-        "symbol": symbol,
-        "type": "CALL" if best_contract in calls else "PUT",
-        "strike": best_contract["strike"],
-        "expiry": expiry,
-        "entry": round((best_contract["bid"] + best_contract["ask"]) / 2, 2),
-        "target": round((best_contract["bid"] + best_contract["ask"]) / 2 * 3, 2)
-    }
-
-# ---- إدارة التشغيل ----
+# ---- التشغيل الرئيسي ----
 def main_loop():
-    global current_trade
+    last_hour = -1
+    last_recommendation_date = None
+    
     keep_alive()
-    send_telegram_message("🚀 تم بدء التشغيل بنجاح | نظام التوصيات الذكي")
-
+    send_telegram_message("🚀 النظام يعمل بنجاح | تحديثات مباشرة كل ساعة")
+    
     while True:
         now = datetime.now(ny_tz)
-        if now.weekday() < 5 and time(9, 30) <= now.time() <= time(16, 0):
-            recommendations = []
-            for symbol in companies:
-                rec = generate_recommendation(symbol)
-                if rec:
-                    recommendations.append(rec)
-
-            if recommendations:
-                best_trade = max(recommendations, key=lambda x: x["entry"])
-                msg = (
-                    f"📊 **توصية مؤكدة**\n"
-                    f"▫️ السهم: `{best_trade['symbol']}`\n"
-                    f"▫️ النوع: {best_trade['type']} عند ${best_trade['strike']}\n"
-                    f"▫️ الانتهاء: {best_trade['expiry']}\n"
-                    f"▫️ السعر الحالي: ${best_trade['entry']}\n"
-                    f"🎯 الهدف: ${best_trade['target']} (+200%)"
+        
+        # تحديث الأسعار كل ساعة
+        if now.minute == 0 and now.hour != last_hour:
+            send_hourly_prices()
+            last_hour = now.hour
+            time.sleep(60)
+        
+        # التوصية الإلزامية اليومية
+        if is_market_open() and (last_recommendation_date != now.date()):
+            forced_trade = generate_forced_recommendation()
+            if forced_trade:
+                send_telegram_message(
+                    f"🔥 **توصية إلزامية اليوم**\n"
+                    f"▫️ السهم: {forced_trade['symbol']}\n"
+                    f"▫️ النوع: {forced_trade['type']} @ {forced_trade['strike']}\n"
+                    f"▫️ السعر: ${forced_trade['entry']}\n"
+                    f"🎯 الهدف: ${forced_trade['target']} (+200%)\n"
+                    f"⏱ {now.strftime('%Y-%m-%d %H:%M')}"
                 )
-                current_trade = best_trade
-                send_telegram_message(msg)
-            else:
-                send_telegram_message("⚠️ لا توجد توصيات اليوم - الظروف غير مناسبة")
+                last_recommendation_date = now.date()
+        
+        time.sleep(300)
 
-            time.sleep(3600)  # تحديث كل ساعة
-        else:
-            time.sleep(600)   # تحقق كل 10 دقائق خارج أوقات السوق
+def is_market_open():
+    now = datetime.now(ny_tz)
+    return (now.weekday() < 5 and 
+            time(9, 30) <= now.time() <= time(16, 0))
 
 if __name__ == "__main__":
     main_loop()
