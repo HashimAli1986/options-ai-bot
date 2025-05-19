@@ -1,6 +1,6 @@
+pip
+install
 requests
-yfinance
 flask
+pandas
 pytz
-beautifulsoup4
-lxml
