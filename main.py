@@ -58,20 +58,36 @@ def fetch_all_prices():
     return prices
 
 def generate_option_recommendation(symbol, price):
-    strike_price = round(price * (1 + random.uniform(-0.05, 0.05)), 2)
-    option_type = random.choice(["CALL", "PUT"])
-    contract_price = round(random.uniform(1.5, 3), 2)
-    target = round(contract_price * 3, 2)
-    expiry = (datetime.now() + pd.Timedelta(days=7)).strftime('%Y-%m-%d')
-    return {
-        "symbol": symbol,
-        "type": option_type,
-        "strike": strike_price,
-        "expiry": expiry,
-        "entry": contract_price,
-        "target": target
-    }
+    try:
+        # نحاول توليد Strike قريبة من السعر الحقيقي
+        strike_price = round(price * random.choice([0.97, 1.0, 1.03]), 2)
 
+        # نحدد نوع الخيار بناء على مقارنة السعر والسترايك
+        option_type = "CALL" if strike_price > price else "PUT"
+
+        # تحديد سعر عقد وهمي واقعي بين 1.5 و 3
+        contract_price = round(random.uniform(1.5, 3), 2)
+
+        # تحديد الهدف بناء على ربح 200%
+        target = round(contract_price * 3, 2)
+
+        # نختار أقرب يوم جمعة لتاريخ الانتهاء
+        expiry = datetime.now()
+        while expiry.weekday() != 4:  # 4 = Friday
+            expiry += pd.Timedelta(days=1)
+        expiry = expiry.strftime('%Y-%m-%d')
+
+        return {
+            "symbol": symbol,
+            "type": option_type,
+            "strike": strike_price,
+            "expiry": expiry,
+            "entry": contract_price,
+            "target": target
+        }
+    except Exception as e:
+        print(f"generate_option_recommendation error: {e}")
+        return None
 def format_price_list(prices):
     lines = ["**أسعار الأسهم الحالية**"]
     for k, v in prices.items():
