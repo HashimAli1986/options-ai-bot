@@ -1,5 +1,5 @@
 requests
-yfinance
 flask
 pytz
 beautifulsoup4
+lxml
