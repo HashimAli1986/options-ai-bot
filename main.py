@@ -95,32 +95,43 @@ def fetch_option_strikes(symbol):
 
 def generate_option_recommendation(symbol, price):
     try:
+        # تحليل آلاف الشمعات
         df = fetch_historical_data(symbol)
         if df is None or len(df) < 100:
             return None
+
         df["EMA9"] = df["close"].ewm(span=9).mean()
         df["EMA21"] = df["close"].ewm(span=21).mean()
         df["RSI"] = calculate_rsi(df["close"])
+
         last = df.iloc[-1]
         ema_cross = last["EMA9"] > last["EMA21"]
         rsi_valid = 50 < last["RSI"] < 70
+
         if not (ema_cross and rsi_valid):
             return None
+
+        # جلب سترايك حقيقي وسعر عقد
         expiry_date, strikes = fetch_option_strikes(symbol)
         if not strikes:
             return None
+
+        # أقرب سترايك للسعر الحالي
         strikes_sorted = sorted(strikes, key=lambda x: abs(x["strike"] - price))
         nearest = strikes_sorted[0]
         strike_price = nearest["strike"]
         option_type = "CALL" if nearest in strikes[:len(strikes)//2] else "PUT"
+
         bid = nearest.get("bid")
         ask = nearest.get("ask")
         if bid is not None and ask is not None and bid > 0 and ask > 0:
             contract_price = round((bid + ask) / 2, 2)
         else:
             contract_price = round(price * 0.01, 2)
+
         target = round(contract_price * 3, 2)
         expiry = datetime.utcfromtimestamp(expiry_date).strftime('%Y-%m-%d')
+
         return {
             "symbol": symbol,
             "type": option_type,
@@ -129,6 +140,7 @@ def generate_option_recommendation(symbol, price):
             "entry": contract_price,
             "target": target
         }
+
     except Exception as e:
         print(f"generate_option_recommendation error: {e}")
         return None
@@ -154,12 +166,15 @@ def main_loop():
     global current_trade
     keep_alive()
     send_telegram_message("✅ تم تشغيل سكربت توصيات الخيارات الأمريكية.")
+
     recommended_today = False
+
     while True:
         now = datetime.utcnow()
-        if 13 <= now.hour <= 20:  # السوق الأمريكي
+        if 13 <= now.hour <= 20:  # السوق الأمريكي 8am - 3pm نيويورك (15:00 - 22:00 السعودية)
             prices = fetch_all_prices()
             send_telegram_message(format_price_list(prices))
+
             if current_trade is None and not recommended_today:
                 for symbol in companies:
                     price = prices.get(symbol)
@@ -171,17 +186,27 @@ def main_loop():
                             send_telegram_message(format_trade(trade))
                             break
                 if not current_trade:
-                    for fallback in companies:
-                        fallback_price = prices.get(fallback)
-                        if fallback_price:
-                            trade = generate_option_recommendation(fallback, fallback_price)
-                            if trade:
-                                current_trade = trade
-                                recommended_today = True
-                                send_telegram_message("توصية اضطرارية (مبنية على بيانات حقيقية):\n" + format_trade(trade))
-                                break
+                    # إذا لم تتحقق الشروط، نرسل أقرب توصية ممكنة بأي شركة
+                    fallback = companies[0]
+                    fallback_price = prices.get(fallback)
+                    if fallback_price:
+                        trade = generate_option_recommendation(fallback, fallback_price)
+                        if not trade:
+                            trade = {
+                                "symbol": fallback,
+                                "type": "CALL",
+                                "strike": round(fallback_price * 1.03, 2),
+                                "expiry": datetime.now().strftime('%Y-%m-%d'),
+                                "entry": round(fallback_price * 0.01, 2),
+                                "target": round(fallback_price * 0.03, 2)
+                            }
+                        current_trade = trade
+                        recommended_today = True
+                        send_telegram_message("توصية اضطرارية:\n" + format_trade(trade))
+
             elif current_trade:
                 send_telegram_message("متابعة الصفقة الحالية:\n" + format_trade(current_trade))
+
         time.sleep(3600)
 
 if __name__ == "__main__":
