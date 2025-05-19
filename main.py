@@ -1,16 +1,16 @@
+import yfinance as yf
 import requests
-import pandas as pd
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import Flask
 from threading import Thread
-import random
+import pytz
 
 app = Flask('')
 
 @app.route('/')
 def home():
-    return "سكربت توصيات الأسهم الأمريكية يعمل بنجاح"
+    return "سكربت توصيات خيارات الأسهم الأمريكية يعمل بنجاح"
 
 def run():
     app.run(host='0.0.0.0', port=8080)
@@ -19,7 +19,7 @@ def keep_alive():
     t = Thread(target=run)
     t.start()
 
-# إعداد التوكن والقناة
+# إعدادات تيليجرام
 BOT_TOKEN = "7560392852:AAGNoxFGThp04qMKTGEiIJN2eY_cahTv3E8"
 CHANNEL_ID = "@hashimAlico"
 
@@ -29,69 +29,43 @@ def send_telegram_message(text):
     try:
         requests.post(url, data=data)
     except Exception as e:
-        print(f"Telegram Error: {e}")
+        print("Telegram error:", e)
 
-companies = [
-    "MSTR", "APP", "AVGO", "SMCI", "GS",
-    "MU", "META", "AAPL", "COIN", "TSLA", "LLY"
-]
-
+companies = ["MSTR", "APP", "AVGO", "SMCI", "GS", "MU", "META", "AAPL", "COIN", "TSLA", "LLY"]
 current_trade = None
 
-def fetch_price(symbol):
+def fetch_current_price(symbol):
     try:
-        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1d&interval=1m"
-        headers = {"User-Agent": "Mozilla/5.0"}
-        response = requests.get(url, headers=headers)
-        data = response.json()
-        close_price = data["chart"]["result"][0]["indicators"]["quote"][0]["close"][-1]
-        return round(close_price, 2)
+        ticker = yf.Ticker(symbol)
+        data = ticker.history(period="1d", interval="1m")
+        if data.empty:
+            return None
+        return round(data['Close'].iloc[-1], 2)
     except:
         return None
 
-def fetch_all_prices():
-    prices = {}
-    for company in companies:
-        price = fetch_price(company)
-        if price:
-            prices[company] = price
-    return prices
-
-def generate_option_recommendation(symbol, price):
+def fetch_options_data(symbol):
     try:
-        # نحاول توليد Strike قريبة من السعر الحقيقي
-        strike_price = round(price * random.choice([0.97, 1.0, 1.03]), 2)
-
-        # نحدد نوع الخيار بناء على مقارنة السعر والسترايك
-        option_type = "CALL" if strike_price > price else "PUT"
-
-        # تحديد سعر عقد وهمي واقعي بين 1.5 و 3
-        contract_price = round(random.uniform(1.5, 3), 2)
-
-        # تحديد الهدف بناء على ربح 200%
-        target = round(contract_price * 3, 2)
-
-        # نختار أقرب يوم جمعة لتاريخ الانتهاء
-        expiry = datetime.now()
-        while expiry.weekday() != 4:  # 4 = Friday
-            expiry += pd.Timedelta(days=1)
-        expiry = expiry.strftime('%Y-%m-%d')
-
-        return {
-            "symbol": symbol,
-            "type": option_type,
-            "strike": strike_price,
-            "expiry": expiry,
-            "entry": contract_price,
-            "target": target
-        }
-    except Exception as e:
-        print(f"generate_option_recommendation error: {e}")
+        ticker = yf.Ticker(symbol)
+        expirations = ticker.options
+        if not expirations:
+            return None
+        expiry = expirations[0]
+        opt_chain = ticker.option_chain(expiry)
+        all_options = opt_chain.calls.append(opt_chain.puts)
+        valid_options = all_options[(all_options['lastPrice'] >= 1.5) & (all_options['lastPrice'] <= 3)]
+        if valid_options.empty:
+            return None
+        return valid_options.sort_values(by="volume", ascending=False).iloc[0], expiry
+    except:
         return None
-def format_price_list(prices):
+
+def format_price_list():
     lines = ["**أسعار الأسهم الحالية**"]
-    for k, v in prices.items():
-        lines.append(f"{k}: ${v}")
+    for symbol in companies:
+        price = fetch_current_price(symbol)
+        if price:
+            lines.append(f"{symbol}: ${price}")
     return "\n".join(lines)
 
 def format_trade(trade):
@@ -105,28 +79,40 @@ def format_trade(trade):
         f"الوقت: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
     )
 
+def generate_option_trade(symbol):
+    result = fetch_options_data(symbol)
+    if not result:
+        return None
+    option, expiry = result
+    trade = {
+        "symbol": symbol,
+        "type": option['contractSymbol'].split(symbol)[-1][:4].replace('C', 'CALL').replace('P', 'PUT'),
+        "strike": option['strike'],
+        "expiry": expiry,
+        "entry": round(option['lastPrice'], 2),
+        "target": round(option['lastPrice'] * 3, 2)
+    }
+    return trade
+
 def main_loop():
     global current_trade
     keep_alive()
-    send_telegram_message("✅ تم تشغيل سكربت توصيات الخيارات الأمريكية.")
+    send_telegram_message("✅ تم تشغيل سكربت توصيات خيارات الأسهم الأمريكية.")
 
     while True:
-        now = datetime.utcnow()
-        if 13 <= now.hour <= 20:  # وقت السوق الأمريكي 8 صباحًا - 3 مساءً بتوقيت نيويورك
-            prices = fetch_all_prices()
-            send_telegram_message(format_price_list(prices))
+        now = datetime.now(pytz.timezone("US/Eastern"))
+        if now.weekday() < 5 and 9 <= now.hour < 16:  # خلال السوق الأمريكي
+            send_telegram_message(format_price_list())
 
             if current_trade is None:
                 for symbol in companies:
-                    price = prices.get(symbol)
-                    if price:
-                        trade = generate_option_recommendation(symbol, price)
+                    trade = generate_option_trade(symbol)
+                    if trade:
                         current_trade = trade
                         send_telegram_message(format_trade(trade))
                         break
             else:
                 send_telegram_message("متابعة الصفقة الحالية:\n" + format_trade(current_trade))
-
         time.sleep(3600)
 
 if __name__ == "__main__":
