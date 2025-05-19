@@ -1,4 +1,5 @@
 requests
+yfinance
 flask
 pytz
 beautifulsoup4
