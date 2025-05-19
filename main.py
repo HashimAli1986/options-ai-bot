@@ -56,26 +56,62 @@ def fetch_all_prices():
             prices[company] = price
     return prices
 
-def fetch_option_strikes(symbol, expiry=None):
+def fetch_historical_data(symbol):
+    try:
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1000d&interval=1d"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        response = requests.get(url, headers=headers)
+        data = response.json()["chart"]["result"][0]
+        closes = data["indicators"]["quote"][0]["close"]
+        timestamps = data["timestamp"]
+        df = pd.DataFrame({
+            "close": closes,
+            "time": pd.to_datetime(timestamps, unit='s')
+        }).dropna()
+        return df
+    except:
+        return None
+
+def calculate_rsi(series, period=14):
+    delta = series.diff()
+    gain = delta.where(delta > 0, 0).rolling(window=period).mean()
+    loss = -delta.where(delta < 0, 0).rolling(window=period).mean()
+    rs = gain / loss
+    return 100 - (100 / (1 + rs))
+
+def fetch_option_strikes(symbol):
     try:
         url = f"https://query1.finance.yahoo.com/v7/finance/options/{symbol}"
-        if expiry:
-            url += f"?date={expiry}"
         resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}).json()
         result = resp.get("optionChain", {}).get("result", [])
         if not result:
             return None, []
         opts = result[0]
-        if not expiry:
-            expiry = opts["expirationDates"][0]
+        expiry = opts["expirationDates"][0]
         strikes = opts["options"][0]["calls"] + opts["options"][0]["puts"]
         return expiry, strikes
-    except Exception as e:
-        print(f"fetch_option_strikes error: {e}")
+    except:
         return None, []
 
 def generate_option_recommendation(symbol, price):
     try:
+        # تحليل آلاف الشمعات
+        df = fetch_historical_data(symbol)
+        if df is None or len(df) < 100:
+            return None
+
+        df["EMA9"] = df["close"].ewm(span=9).mean()
+        df["EMA21"] = df["close"].ewm(span=21).mean()
+        df["RSI"] = calculate_rsi(df["close"])
+
+        last = df.iloc[-1]
+        ema_cross = last["EMA9"] > last["EMA21"]
+        rsi_valid = 50 < last["RSI"] < 70
+
+        if not (ema_cross and rsi_valid):
+            return None
+
+        # جلب سترايك حقيقي وسعر عقد
         expiry_date, strikes = fetch_option_strikes(symbol)
         if not strikes:
             return None
@@ -88,7 +124,7 @@ def generate_option_recommendation(symbol, price):
 
         bid = nearest.get("bid")
         ask = nearest.get("ask")
-        if bid is not None and ask is not None:
+        if bid is not None and ask is not None and bid > 0 and ask > 0:
             contract_price = round((bid + ask) / 2, 2)
         else:
             contract_price = round(price * 0.01, 2)
@@ -104,6 +140,7 @@ def generate_option_recommendation(symbol, price):
             "entry": contract_price,
             "target": target
         }
+
     except Exception as e:
         print(f"generate_option_recommendation error: {e}")
         return None
@@ -130,22 +167,44 @@ def main_loop():
     keep_alive()
     send_telegram_message("✅ تم تشغيل سكربت توصيات الخيارات الأمريكية.")
 
+    recommended_today = False
+
     while True:
         now = datetime.utcnow()
-        if 13 <= now.hour <= 20:  # السوق الأمريكي 8 صباحًا - 3 مساءً بتوقيت نيويورك
+        if 13 <= now.hour <= 20:  # السوق الأمريكي 8am - 3pm نيويورك (15:00 - 22:00 السعودية)
             prices = fetch_all_prices()
             send_telegram_message(format_price_list(prices))
 
-            if current_trade is None:
+            if current_trade is None and not recommended_today:
                 for symbol in companies:
                     price = prices.get(symbol)
                     if price:
                         trade = generate_option_recommendation(symbol, price)
                         if trade:
                             current_trade = trade
+                            recommended_today = True
                             send_telegram_message(format_trade(trade))
                             break
-            else:
+                if not current_trade:
+                    # إذا لم تتحقق الشروط، نرسل أقرب توصية ممكنة بأي شركة
+                    fallback = companies[0]
+                    fallback_price = prices.get(fallback)
+                    if fallback_price:
+                        trade = generate_option_recommendation(fallback, fallback_price)
+                        if not trade:
+                            trade = {
+                                "symbol": fallback,
+                                "type": "CALL",
+                                "strike": round(fallback_price * 1.03, 2),
+                                "expiry": datetime.now().strftime('%Y-%m-%d'),
+                                "entry": round(fallback_price * 0.01, 2),
+                                "target": round(fallback_price * 0.03, 2)
+                            }
+                        current_trade = trade
+                        recommended_today = True
+                        send_telegram_message("توصية اضطرارية:\n" + format_trade(trade))
+
+            elif current_trade:
                 send_telegram_message("متابعة الصفقة الحالية:\n" + format_trade(current_trade))
 
         time.sleep(3600)
