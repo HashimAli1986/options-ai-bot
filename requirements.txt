@@ -1,6 +1,4 @@
-pip
-install
-requests
-flask
-pandas
-pytz
+requests==2.31.0
+flask==3.0.2
+pandas==2.0.3
+pytz==2023.3
