@@ -30,11 +30,7 @@ def send_telegram_message(text):
     except Exception as e:
         print(f"Telegram Error: {e}")
 
-companies = [
-    "MSTR", "APP", "AVGO", "SMCI", "GS",
-    "MU", "META", "AAPL", "COIN", "TSLA", "LLY"
-]
-
+companies = ["MSTR", "APP", "AVGO", "SMCI", "GS", "MU", "META", "AAPL", "COIN", "TSLA", "LLY"]
 current_trade = None
 
 def fetch_price(symbol):
@@ -56,56 +52,51 @@ def fetch_all_prices():
             prices[company] = price
     return prices
 
-def get_nearest_friday():
-    expiry = datetime.now()
-    while expiry.weekday() != 4:  # 4 = Friday
-        expiry += pd.Timedelta(days=1)
-    return expiry
-
-def fetch_real_option(symbol, expiry_date, current_price):
+def fetch_put_options(symbol, expiry):
     try:
-        expiry_timestamp = int(time.mktime(expiry_date.timetuple()))
-        url = f"https://finance.yahoo.com/quote/{symbol}/options?p={symbol}&date={expiry_timestamp}"
+        url = f"https://finance.yahoo.com/quote/{symbol}/options?p={symbol}&date={expiry}"
         headers = {"User-Agent": "Mozilla/5.0"}
-        response = requests.get(url, headers=headers)
-        soup = BeautifulSoup(response.text, 'html.parser')
-        table = soup.find('table', {'class': 'puts'})
-        rows = table.find_all('tr')[1:]
-
+        r = requests.get(url, headers=headers)
+        soup = BeautifulSoup(r.text, "html.parser")
+        table = soup.find("table", {"class": "puts"})
+        rows = table.find_all("tr")[1:]
+        options = []
         for row in rows:
-            cols = row.find_all('td')
+            cols = row.find_all("td")
             if len(cols) >= 10:
                 strike = float(cols[2].text.strip())
-                last = float(cols[3].text.strip())
-                if 1.5 <= last <= 3:
-                    return {
-                        "strike": strike,
-                        "last": last
-                    }
-        return None
-    except Exception as e:
-        print(f"fetch_real_option error: {e}")
-        return None
+                bid = float(cols[4].text.strip().replace("-", "0") or 0)
+                ask = float(cols[5].text.strip().replace("-", "0") or 0)
+                options.append({"strike": strike, "bid": bid, "ask": ask})
+        return options
+    except:
+        return []
 
 def generate_option_recommendation(symbol, price):
-    expiry_date = get_nearest_friday()
-    option = fetch_real_option(symbol, expiry_date, price)
-    if option:
-        return {
-            "symbol": symbol,
-            "type": "PUT" if option["strike"] < price else "CALL",
-            "strike": option["strike"],
-            "expiry": expiry_date.strftime('%Y-%m-%d'),
-            "entry": round(option["last"], 2),
-            "target": round(option["last"] * 3, 2)
-        }
-    return None
+    expiry_date = datetime.now()
+    while expiry_date.weekday() != 4:
+        expiry_date += pd.Timedelta(days=1)
+    expiry_unix = int(time.mktime(expiry_date.timetuple()))
+    expiry_str = expiry_date.strftime('%Y-%m-%d')
+    
+    options = fetch_put_options(symbol, expiry_unix)
+    filtered = [opt for opt in options if opt["strike"] < price and 1.5 <= opt["ask"] <= 3]
+
+    if not filtered:
+        return None
+    
+    chosen = filtered[0]
+    return {
+        "symbol": symbol,
+        "type": "PUT",
+        "strike": chosen["strike"],
+        "expiry": expiry_str,
+        "entry": chosen["ask"],
+        "target": round(chosen["ask"] * 3, 2)
+    }
 
 def format_price_list(prices):
-    lines = ["**أسعار الأسهم الحالية**"]
-    for k, v in prices.items():
-        lines.append(f"{k}: ${v}")
-    return "\n".join(lines)
+    return "**أسعار الأسهم الحالية**\n" + "\n".join([f"{k}: ${v}" for k, v in prices.items()])
 
 def format_trade(trade):
     return (
@@ -121,14 +112,14 @@ def format_trade(trade):
 def main_loop():
     global current_trade
     keep_alive()
-    send_telegram_message("✅ تم تشغيل سكربت توصيات الخيارات الأمريكية.")
+    send_telegram_message("✅ تم تشغيل سكربت توصيات الخيارات الأمريكية بأسعار حقيقية.")
 
     while True:
         now = datetime.utcnow()
         if 13 <= now.hour <= 20:
             prices = fetch_all_prices()
             send_telegram_message(format_price_list(prices))
-
+            
             if current_trade is None:
                 for symbol in companies:
                     price = prices.get(symbol)
