@@ -36,16 +36,27 @@ companies = ["MSTR", "APP", "AVGO", "SMCI", "GS", "MU", "META", "AAPL", "COIN", 
 # جلب الأسعار الحقيقية
 def get_current_prices():
     prices = {}
-    for symbol in companies:
+    for name, data in stock_list.items():
         try:
-            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1d&interval=1m"
-            res = requests.get(url)
-            data = res.json()
-            result = data["chart"]["result"][0]
-            price = result["indicators"]["quote"][0]["close"][-1]
-            prices[symbol] = round(price, 2)
-        except:
-            prices[symbol] = "N/A"
+            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{data['symbol']}?interval=1m&range=1d"
+            headers = {"User-Agent": "Mozilla/5.0"}
+            r = requests.get(url, headers=headers)
+            r.raise_for_status()
+            res = r.json()
+
+            # التأكد من وجود البيانات
+            if "chart" in res and "result" in res["chart"] and res["chart"]["result"]:
+                result = res["chart"]["result"][0]
+                close_prices = result["indicators"]["quote"][0].get("close", [])
+                if close_prices and close_prices[-1] is not None:
+                    prices[name] = f"${close_prices[-1]:.2f}"
+                else:
+                    prices[name] = "N/A"
+            else:
+                prices[name] = "N/A"
+        except Exception as e:
+            print(f"[Error] {name}: {e}")
+            prices[name] = "N/A"
     return prices
 
 # تنفيذ التوصية اليومية
