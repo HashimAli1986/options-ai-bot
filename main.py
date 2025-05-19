@@ -4,9 +4,7 @@ import time
 from datetime import datetime
 from flask import Flask
 from threading import Thread
-import random
-import json
-import os
+from bs4 import BeautifulSoup
 
 app = Flask('')
 
@@ -37,6 +35,8 @@ companies = [
     "MU", "META", "AAPL", "COIN", "TSLA", "LLY"
 ]
 
+current_trade = None
+
 def fetch_price(symbol):
     try:
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1d&interval=1m"
@@ -56,28 +56,50 @@ def fetch_all_prices():
             prices[company] = price
     return prices
 
-def generate_option_recommendation(symbol, price):
+def get_nearest_friday():
+    expiry = datetime.now()
+    while expiry.weekday() != 4:  # 4 = Friday
+        expiry += pd.Timedelta(days=1)
+    return expiry
+
+def fetch_real_option(symbol, expiry_date, current_price):
     try:
-        strike_price = round(price * random.choice([0.97, 1.0, 1.03]), 2)
-        option_type = "CALL" if strike_price > price else "PUT"
-        contract_price = round(random.uniform(1.5, 3), 2)
-        target = round(contract_price * 3, 2)
-        expiry = datetime.now()
-        while expiry.weekday() != 4:
-            expiry += pd.Timedelta(days=1)
-        expiry = expiry.strftime('%Y-%m-%d')
+        expiry_timestamp = int(time.mktime(expiry_date.timetuple()))
+        url = f"https://finance.yahoo.com/quote/{symbol}/options?p={symbol}&date={expiry_timestamp}"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        response = requests.get(url, headers=headers)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        table = soup.find('table', {'class': 'puts'})
+        rows = table.find_all('tr')[1:]
+
+        for row in rows:
+            cols = row.find_all('td')
+            if len(cols) >= 10:
+                strike = float(cols[2].text.strip())
+                last = float(cols[3].text.strip())
+                if 1.5 <= last <= 3:
+                    return {
+                        "strike": strike,
+                        "last": last
+                    }
+        return None
+    except Exception as e:
+        print(f"fetch_real_option error: {e}")
+        return None
+
+def generate_option_recommendation(symbol, price):
+    expiry_date = get_nearest_friday()
+    option = fetch_real_option(symbol, expiry_date, price)
+    if option:
         return {
             "symbol": symbol,
-            "type": option_type,
-            "strike": strike_price,
-            "expiry": expiry,
-            "entry": contract_price,
-            "target": target,
-            "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M')
+            "type": "PUT" if option["strike"] < price else "CALL",
+            "strike": option["strike"],
+            "expiry": expiry_date.strftime('%Y-%m-%d'),
+            "entry": round(option["last"], 2),
+            "target": round(option["last"] * 3, 2)
         }
-    except Exception as e:
-        print(f"generate_option_recommendation error: {e}")
-        return None
+    return None
 
 def format_price_list(prices):
     lines = ["**أسعار الأسهم الحالية**"]
@@ -93,34 +115,17 @@ def format_trade(trade):
         f"تاريخ الانتهاء: {trade['expiry']}\n"
         f"سعر العقد: ${trade['entry']}\n"
         f"الهدف: ${trade['target']} (ربح 200%)\n"
-        f"الوقت: {trade['timestamp']}"
+        f"الوقت: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
     )
 
-def load_saved_trade():
-    if os.path.exists("current_trade.json"):
-        try:
-            with open("current_trade.json", "r") as f:
-                return json.load(f)
-        except:
-            return None
-    return None
-
-def save_trade(trade):
-    try:
-        with open("current_trade.json", "w") as f:
-            json.dump(trade, f)
-    except:
-        pass
-
 def main_loop():
+    global current_trade
     keep_alive()
     send_telegram_message("✅ تم تشغيل سكربت توصيات الخيارات الأمريكية.")
 
-    current_trade = load_saved_trade()
-
     while True:
         now = datetime.utcnow()
-        if 13 <= now.hour <= 20:  # السوق الأمريكي من 8 صباحًا إلى 3 مساءً بتوقيت نيويورك
+        if 13 <= now.hour <= 20:
             prices = fetch_all_prices()
             send_telegram_message(format_price_list(prices))
 
@@ -131,7 +136,6 @@ def main_loop():
                         trade = generate_option_recommendation(symbol, price)
                         if trade:
                             current_trade = trade
-                            save_trade(trade)
                             send_telegram_message(format_trade(trade))
                             break
             else:
