@@ -132,6 +132,49 @@ def hourly_price_update():
                 send_telegram_message(f"تنبيه: {error_msg}")
         time.sleep(30)
 
+def send_option_recommendation(
+    symbol,
+    option_type,
+    entry_price,
+    strike_price,
+    expiry_date,
+    contract_price_range,
+    target_price,
+    resistance_level,
+    rsi_value
+):
+    message = f"""**توصية خيارات اليوم – {symbol}**
+
+نوع العقد: {option_type}  
+السعر الحالي للسهم: {entry_price} دولار  
+السترايك: {strike_price} (Strike Price)  
+تاريخ الانتهاء: {expiry_date}  
+سعر العقد المقدر: {contract_price_range}  
+الهدف: {target_price}
+
+**التحليل الفني:**
+- RSI: {rsi_value}  
+- المقاومة الفنية: {resistance_level}  
+- التوصية مبنية على تحليل فني ذكي واحتمالية حركة قوية باتجاه الصفقة.
+
+**المتابعة:** السكربت سيقوم بتحليل فني كل ربع ساعة حتى تحقق الهدف.
+
+#{symbol} #Options #{option_type.upper()} #Strike{strike_price} #HashimCO_bot
+"""
+
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    data = {
+        "chat_id": CHANNEL_ID,
+        "text": message,
+        "parse_mode": "Markdown"
+    }
+
+    try:
+        response = requests.post(url, data=data)
+        print("تم إرسال التوصية بنجاح:", response.status_code)
+    except Exception as e:
+        print("فشل في إرسال التوصية:", e)
+        
 if __name__ == "__main__":
     keep_alive()
     send_telegram_message("✅ تم تشغيل المحلل الذكي بنجاح: إرسال كل ساعة + تحليل 1000 شمعة يومية.")
