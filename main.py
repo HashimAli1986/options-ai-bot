@@ -18,8 +18,8 @@ def keep_alive():
     t = Thread(target=run)
     t.start()
 
-BOT_TOKEN = "7883771248:AAFfwmcF3hcHz17_IG0KfyOCSGLjMBzyg8E"
-CHANNEL_ID = "@hashimali1986"
+BOT_TOKEN = "7560392852:AAGNoxFGThp04qMKTGEiIJN2eY_cahTv3E8"
+CHANNEL_ID = "@hashimAlico"
 
 def send_telegram_message(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
