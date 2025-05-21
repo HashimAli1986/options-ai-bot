@@ -19,11 +19,11 @@ def keep_alive():
     t.start()
 
 BOT_TOKEN = "7560392852:AAGNoxFGThp04qMKTGEiIJN2eY_cahTv3E8"
-CHANNEL_ID = "@hashimAlico"
+CHANNEL_ID = "@hashimAlico"  # تم تصحيح الخطأ المطبعي (CHENNEL_ID → CHANNEL_ID)
 
 def send_telegram_message(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    data = {"chat_id": CHENNEL_ID, "text": text}
+    data = {"chat_id": CHANNEL_ID, "text": text}  # التصحيح هنا
     try:
         requests.post(url, data=data)
     except Exception as e:
@@ -31,14 +31,53 @@ def send_telegram_message(text):
 
 assets = {
     "MicroStrategy (MSTR)": {"symbol": "MSTR"},
-    # ... باقي الأصول كما هي ...
+    "AppLovin (APP)": {"symbol": "APP"},
+    "Broadcom (AVGO)": {"symbol": "AVGO"},
+    "Super Micro Computer (SMCI)": {"symbol": "SMCI"},
+    "Goldman Sachs (GS)": {"symbol": "GS"},
+    "Micron Technology (MU)": {"symbol": "MU"},
+    "Meta Platforms (META)": {"symbol": "META"},
+    "Apple (AAPL)": {"symbol": "AAPL"},
+    "Coinbase (COIN)": {"symbol": "COIN"},
+    "Tesla (TSLA)": {"symbol": "TSLA"},
+    "Eli Lilly (LLY)": {"symbol": "LLY"}
 }
 
 def fetch_daily_data(symbol):
-    # ... نفس الدالة الأصلية ...
+    try:
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=5y&interval=1d"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        response = requests.get(url, headers=headers)
+        data = response.json()
+        result = data["chart"]["result"][0]
+        timestamps = result["timestamp"]
+        prices = result["indicators"]["quote"][0]
+
+        df = pd.DataFrame({
+            "Open": prices["open"],
+            "High": prices["high"],
+            "Low": prices["low"],
+            "Close": prices["close"]
+        })
+
+        df["Date"] = pd.to_datetime(timestamps, unit="s")
+        df.set_index("Date", inplace=True)
+        return df.dropna().iloc[-1000:]
+    except Exception as e:
+        print(f"fetch_data error ({symbol}): {e}")
+        return None
 
 def calculate_indicators(df):
-    # ... نفس الدالة الأصلية ...
+    df["EMA9"] = df["Close"].ewm(span=9).mean()
+    df["EMA21"] = df["Close"].ewm(span=21).mean()
+    delta = df["Close"].diff()
+    gain = delta.where(delta > 0, 0).rolling(14).mean()
+    loss = -delta.where(delta < 0, 0).rolling(14).mean()
+    rs = gain / loss
+    df["RSI"] = 100 - (100 / (1 + rs))
+    df["Support"] = df["Low"].rolling(50).min()
+    df["Resistance"] = df["High"].rolling(50).max()
+    return df
 
 def analyze_asset(name, df):
     last = df.iloc[-1]
@@ -51,16 +90,13 @@ def analyze_asset(name, df):
     support = last["Support"]
     resistance = last["Resistance"]
 
-    recommendation_strength = ""
+    # توصية
     if direction == "صاعدة" and ema_cross == "صعود" and rsi < 70:
         recommendation = f"التوصية: شراء | الدخول: {price:.2f}-{price+1:.2f} | الهدف: {price+5:.2f} | الوقف: {price-3:.2f} | القوة: قوية"
-        recommendation_strength = "قوية"
     elif direction == "هابطة" and rsi > 70:
         recommendation = f"التوصية: بيع | الدخول: {price-1:.2f}-{price+1:.2f} | الهدف: {price-5:.2f} | الوقف: {price+3:.2f} | القوة: قوية"
-        recommendation_strength = "قوية"
     else:
         recommendation = "التوصية: للمراقبة فقط (ضعف في المؤشرات الفنية)"
-        recommendation_strength = "ضعيفة"
 
     summary = (
         f"{name}:\n"
@@ -71,46 +107,7 @@ def analyze_asset(name, df):
         f"الدعم: {support:.2f} | المقاومة: {resistance:.2f}\n"
         f"{recommendation}"
     )
-    
-    analysis_data = {
-        "name": name,
-        "symbol": assets[name]["symbol"],
-        "price": price,
-        "direction": direction,
-        "ema_cross": ema_cross,
-        "rsi": rsi,
-        "rsi_zone": rsi_zone,
-        "recommendation": recommendation,
-        "strength": recommendation_strength
-    }
-    
-    return summary, analysis_data
-
-def get_options_chain(symbol):
-    try:
-        headers = {"User-Agent": "Mozilla/5.0"}
-        url = f"https://query1.finance.yahoo.com/v7/finance/options/{symbol}"
-        response = requests.get(url, headers=headers)
-        data = response.json()
-        
-        if not data["optionChain"]["result"]:
-            return None, None, None
-            
-        expiration_dates = data["optionChain"]["result"][0]["expirationDates"]
-        if not expiration_dates:
-            return None, None, None
-            
-        nearest_expiration = min(expiration_dates)
-        url = f"{url}?date={nearest_expiration}"
-        response = requests.get(url, headers=headers)
-        data = response.json()
-        
-        options = data["optionChain"]["result"][0]["options"][0]
-        return options["calls"], options["puts"], nearest_expiration
-        
-    except Exception as e:
-        print(f"Options Error: {e}")
-        return None, None, None
+    return summary
 
 def hourly_price_update():
     last_sent_hour = -1
@@ -120,51 +117,19 @@ def hourly_price_update():
             last_sent_hour = now.hour
             try:
                 msg = f"تحديث الساعة {now.strftime('%H:%M')} UTC\n\n"
-                analyses = []
-                
                 for name, info in assets.items():
                     df = fetch_daily_data(info["symbol"])
                     if df is not None and len(df) >= 500:
                         df = calculate_indicators(df)
-                        summary, analysis = analyze_asset(name, df)
-                        msg += summary + "\n\n"
-                        analyses.append(analysis)
+                        msg += analyze_asset(name, df) + "\n\n"
                     else:
                         msg += f"{name}: البيانات غير متوفرة أو غير كافية.\n\n"
-                
-                # إيجاد أقوى توصية
-                strong_analyses = [a for a in analyses if a["strength"] == "قوية"]
-                if strong_analyses:
-                    strong_analyses.sort(key=lambda x: abs(x["rsi"]-30) if x["direction"] == "صاعدة" else abs(x["rsi"]-70))
-                    strongest = strong_analyses[0]
-                    
-                    # جلب بيانات الخيارات
-                    calls, puts, expiration = get_options_chain(strongest["symbol"])
-                    if calls and puts and expiration:
-                        current_price = strongest["price"]
-                        option_type = "Call" if strongest["direction"] == "صاعدة" else "Put"
-                        strikes = [c["strike"] for c in (calls if option_type == "Call" else puts)]
-                        nearest_strike = min(strikes, key=lambda x: abs(x - current_price))
-                        expiration_date = datetime.utcfromtimestamp(expiration).strftime("%Y-%m-%d")
-                        
-                        options_msg = (
-                            f"\n📈 توصية خيارات تلقائية لأقوى شركة ({strongest['name']}):\n"
-                            f"نوع الخيار: {option_type}\n"
-                            f"الاسترايك: {nearest_strike:.2f}\n"
-                            f"التاريخ: {expiration_date}\n"
-                            f"السعر الحالي: {current_price:.2f}\n"
-                            f"الهدف المتوقع: {current_price + 3 if option_type == 'Call' else current_price - 3:.2f}\n"
-                            f"ملاحظة: بناءً على تحليل الاتجاه {strongest['direction']} ومؤشر RSI {strongest['rsi']:.1f}"
-                        )
-                        msg += options_msg
-                
                 send_telegram_message(msg.strip())
-                
             except Exception as e:
                 send_telegram_message(f"⚠️ خطأ في التحديث: {e}")
         time.sleep(60)
 
 if __name__ == "__main__":
     keep_alive()
-    send_telegram_message("✅ تم تشغيل المحلل الذكي: تحديث كل ساعة + توصيات خيارات تلقائية.")
+    send_telegram_message("✅ تم تشغيل المحلل الذكي للشركات الأمريكية: تحديث كل ساعة + تحليل 1000 شمعة يومية.")
     Thread(target=hourly_price_update).start()
