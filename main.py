@@ -93,7 +93,7 @@ def analyze_and_send():
     for symbol, name in assets.items():
         df = fetch_weekly_data(symbol)
         if df is None or len(df) < 20:
-            msg += f"{name}: البيانات غير متوفرة\n\n"
+            msg += f"{name} ({symbol}): البيانات غير متوفرة\n\n"
             continue
 
         df = calculate_indicators(df)
@@ -113,22 +113,20 @@ def analyze_and_send():
                 "stop": round(stop, 2),
                 "rsi": round(last["RSI"], 2)
             }
-        msg += f"{name}:\nالسعر: {price:.2f}\nRSI: {last['RSI']:.2f}\nMACD: {last['MACD']:.2f} / {last['Signal']:.2f}\n"
+        msg += f"{name} ({symbol}):\nالسعر: {price:.2f}\nRSI: {last['RSI']:.2f}\nMACD: {last['MACD']:.2f} / {last['Signal']:.2f}\n"
         msg += f"Breakout: {'صعود قوي' if up else 'هبوط قوي' if down else 'لا يوجد'}\n\n"
 
     if best_opportunity:
         o = best_opportunity
-        msg += f"""🔥 **توصية خيارات – {o['name']}**
+        msg += f"""🔥 **توصية خيارات – {o['name']} ({o['symbol']})**
 
 نوع العقد: {o['type']}  
 السعر الحالي: {o['price']:.2f}  
 Strike: {o['strike']}  
 الهدف: {o['target']}  
 الوقف: {o['stop']}  
-RSI: {o['rsi']}
+RSI: {o['rsi']}"""
 
-#Options #{o['type']} #Weekly #Breakout
-"""
     send_telegram_message(msg.strip())
 
 def hourly_loop():
