@@ -9,7 +9,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "سكربت توصيات أسبوعية يعمل بنجاح"
+    return "سكربت التحليل الأسبوعي يعمل بنجاح"
 
 def run():
     app.run(host='0.0.0.0', port=8080)
@@ -87,7 +87,6 @@ def is_strong_breakout(df):
     return up_breakout, down_breakout
 
 def analyze_and_send():
-    best_opportunity = None
     msg = f"تحديث الساعة {datetime.utcnow().strftime('%H:%M')} UTC – تحليل أسبوعي\n\n"
 
     for symbol, name in assets.items():
@@ -100,32 +99,12 @@ def analyze_and_send():
         last = df.iloc[-1]
         up, down = is_strong_breakout(df)
         price = last["Close"]
-        target = price * 1.05 if up else price * 0.95
-        stop = price * 0.97 if up else price * 1.03
-        if up or down:
-            best_opportunity = {
-                "name": name,
-                "symbol": symbol,
-                "price": price,
-                "type": "CALL" if up else "PUT",
-                "strike": round(price),
-                "target": round(target, 2),
-                "stop": round(stop, 2),
-                "rsi": round(last["RSI"], 2)
-            }
-        msg += f"{name} ({symbol}):\nالسعر: {price:.2f}\nRSI: {last['RSI']:.2f}\nMACD: {last['MACD']:.2f} / {last['Signal']:.2f}\n"
+
+        msg += f"{name} ({symbol}):\n"
+        msg += f"السعر: {price:.2f}\n"
+        msg += f"RSI: {last['RSI']:.2f}\n"
+        msg += f"MACD: {last['MACD']:.2f} / {last['Signal']:.2f}\n"
         msg += f"Breakout: {'صعود قوي' if up else 'هبوط قوي' if down else 'لا يوجد'}\n\n"
-
-    if best_opportunity:
-        o = best_opportunity
-        msg += f"""🔥 **توصية خيارات – {o['name']} ({o['symbol']})**
-
-نوع العقد: {o['type']}  
-السعر الحالي: {o['price']:.2f}  
-Strike: {o['strike']}  
-الهدف: {o['target']}  
-الوقف: {o['stop']}  
-RSI: {o['rsi']}"""
 
     send_telegram_message(msg.strip())
 
@@ -140,5 +119,5 @@ def hourly_loop():
 
 if __name__ == "__main__":
     keep_alive()
-    send_telegram_message("✅ تم تشغيل سكربت توصيات الخيارات الأسبوعية باحتراف.")
+    send_telegram_message("✅ تم تشغيل سكربت التحليل الأسبوعي – بدون توصيات.")
     Thread(target=hourly_loop).start()
