@@ -30,7 +30,6 @@ def send_telegram_message(text):
         print(f"Telegram Error: {e}")
 
 assets = {
-    # الشركات المتبقية بعد الحذف
     "MicroStrategy (MSTR)": {"symbol": "MSTR"},
     "AppLovin (APP)": {"symbol": "APP"},
     "Broadcom (AVGO)": {"symbol": "AVGO"},
@@ -50,29 +49,20 @@ def fetch_daily_data(symbol):
         headers = {"User-Agent": "Mozilla/5.0"}
         response = requests.get(url, headers=headers)
         data = response.json()
-        
-        if not data["chart"]["result"]:
-            print(f"لا توجد بيانات لـ {symbol}")
-            return None
-            
         result = data["chart"]["result"][0]
         timestamps = result["timestamp"]
         prices = result["indicators"]["quote"][0]
-        
-        if not all(k in prices for k in ["open", "high", "low", "close"]):
-            print(f"بيانات غير مكتملة لـ {symbol}")
-            return None
-            
+
         df = pd.DataFrame({
             "Open": prices["open"],
             "High": prices["high"],
             "Low": prices["low"],
             "Close": prices["close"]
         })
-        
+
         df["Date"] = pd.to_datetime(timestamps, unit="s")
         df.set_index("Date", inplace=True)
-        return df.dropna().iloc[-1000:]  
+        return df.dropna().iloc[-1000:]
     except Exception as e:
         print(f"fetch_data error ({symbol}): {e}")
         return None
@@ -89,20 +79,35 @@ def calculate_indicators(df):
     df["Resistance"] = df["High"].rolling(50).max()
     return df
 
-def analyze_next_hour_direction(df):
+def analyze_asset(name, df):
     last = df.iloc[-1]
     prev = df.iloc[-2]
+    price = last["Close"]
     direction = "صاعدة" if last["Close"] > last["Open"] else "هابطة"
     ema_cross = "صعود" if prev["EMA9"] < prev["EMA21"] and last["EMA9"] > last["EMA21"] else "هبوط" if prev["EMA9"] > prev["EMA21"] and last["EMA9"] < last["EMA21"] else "جانبي"
-    rsi_zone = "تشبع بيع" if last["RSI"] < 30 else "تشبع شراء" if last["RSI"] > 70 else "محايد"
+    rsi = last["RSI"]
+    rsi_zone = "تشبع بيع" if rsi < 30 else "تشبع شراء" if rsi > 70 else "محايد"
+    support = last["Support"]
+    resistance = last["Resistance"]
+
+    # توصية
+    if direction == "صاعدة" and ema_cross == "صعود" and rsi < 70:
+        recommendation = f"التوصية: شراء | الدخول: {price:.2f}-{price+1:.2f} | الهدف: {price+5:.2f} | الوقف: {price-3:.2f} | القوة: قوية"
+    elif direction == "هابطة" and rsi > 70:
+        recommendation = f"التوصية: بيع | الدخول: {price-1:.2f}-{price+1:.2f} | الهدف: {price-5:.2f} | الوقف: {price+3:.2f} | القوة: قوية"
+    else:
+        recommendation = "التوصية: للمراقبة فقط (ضعف في المؤشرات الفنية)"
 
     summary = (
+        f"{name}:\n"
+        f"السعر الحالي: {price:.2f}\n"
         f"الاتجاه المتوقع: {direction}\n"
         f"تقاطع EMA: {ema_cross}\n"
-        f"RSI: {last['RSI']:.2f} ({rsi_zone})\n"
-        f"الدعم: {last['Support']:.2f} | المقاومة: {last['Resistance']:.2f}"
+        f"RSI: {rsi:.2f} ({rsi_zone})\n"
+        f"الدعم: {support:.2f} | المقاومة: {resistance:.2f}\n"
+        f"{recommendation}"
     )
-    return last["Close"], summary
+    return summary
 
 def hourly_price_update():
     last_sent_hour = -1
@@ -111,71 +116,20 @@ def hourly_price_update():
         if now.hour != last_sent_hour and now.minute >= 0:
             last_sent_hour = now.hour
             try:
-                print(f"تشغيل التحديث الساعة {now.strftime('%H:%M')} UTC")
-                msg = f"تحديث الساعة {now.strftime('%H:%M')} UTC\n"
+                msg = f"تحديث الساعة {now.strftime('%H:%M')} UTC\n\n"
                 for name, info in assets.items():
                     df = fetch_daily_data(info["symbol"])
-                    if df is None:
-                        msg += f"\n{name}: البيانات غير متوفرة (فشل جلب البيانات من المصدر).\n"
-                    elif df.empty:
-                        msg += f"\n{name}: البيانات غير متوفرة (البيانات فاضية).\n"
-                    elif len(df) < 1000:
-                        msg += f"\n{name}: البيانات غير كافية (< 1000 شمعة).\n"
-                    else:
+                    if df is not None and len(df) >= 500:
                         df = calculate_indicators(df)
-                        price, direction_info = analyze_next_hour_direction(df)
-                        msg += f"\n{name}:\nالسعر الحالي: {price:.2f}\n{direction_info}\n"
-                send_telegram_message(msg)
+                        msg += analyze_asset(name, df) + "\n\n"
+                    else:
+                        msg += f"{name}: البيانات غير متوفرة أو غير كافية.\n\n"
+                send_telegram_message(msg.strip())
             except Exception as e:
-                error_msg = f"Error in hourly update: {e}"
-                print(error_msg)
-                send_telegram_message(f"تنبيه: {error_msg}")
-        time.sleep(30)
+                send_telegram_message(f"⚠️ خطأ في التحديث: {e}")
+        time.sleep(60)
 
-def send_option_recommendation(
-    symbol,
-    option_type,
-    entry_price,
-    strike_price,
-    expiry_date,
-    contract_price_range,
-    target_price,
-    resistance_level,
-    rsi_value
-):
-    message = f"""**توصية خيارات اليوم – {symbol}**
-
-نوع العقد: {option_type}  
-السعر الحالي للسهم: {entry_price} دولار  
-السترايك: {strike_price} (Strike Price)  
-تاريخ الانتهاء: {expiry_date}  
-سعر العقد المقدر: {contract_price_range}  
-الهدف: {target_price}
-
-**التحليل الفني:**
-- RSI: {rsi_value}  
-- المقاومة الفنية: {resistance_level}  
-- التوصية مبنية على تحليل فني ذكي واحتمالية حركة قوية باتجاه الصفقة.
-
-**المتابعة:** السكربت سيقوم بتحليل فني كل ربع ساعة حتى تحقق الهدف.
-
-#{symbol} #Options #{option_type.upper()} #Strike{strike_price} #HashimCO_bot
-"""
-
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    data = {
-        "chat_id": CHANNEL_ID,
-        "text": message,
-        "parse_mode": "Markdown"
-    }
-
-    try:
-        response = requests.post(url, data=data)
-        print("تم إرسال التوصية بنجاح:", response.status_code)
-    except Exception as e:
-        print("فشل في إرسال التوصية:", e)
-        
 if __name__ == "__main__":
     keep_alive()
-    send_telegram_message("✅ تم تشغيل المحلل الذكي بنجاح: إرسال كل ساعة + تحليل 1000 شمعة يومية.")
+    send_telegram_message("✅ تم تشغيل المحلل الذكي للشركات الأمريكية: تحديث كل ساعة + تحليل 1000 شمعة يومية.")
     Thread(target=hourly_price_update).start()
