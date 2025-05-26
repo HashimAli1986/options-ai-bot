@@ -40,7 +40,10 @@ assets = {
     "AAPL": "Apple",
     "COIN": "Coinbase",
     "TSLA": "Tesla",
-    "LLY": "Eli Lilly"
+    "LLY": "Eli Lilly",
+    "CRWD": "CrowdStrike",
+    "MSFT": "Microsoft",
+    "AMD": "Advanced Micro Devices"
 }
 
 def fetch_weekly_data(symbol):
@@ -119,5 +122,5 @@ def hourly_loop():
 
 if __name__ == "__main__":
     keep_alive()
-    send_telegram_message("✅ تم تشغيل سكربت التحليل الأسبوعي – بدون توصيات.")
+    send_telegram_message("✅ التحليل الأسبوعي للشركات")
     Thread(target=hourly_loop).start()
