@@ -119,14 +119,28 @@ def analyze_and_send():
 
         df = calculate_indicators(df)
         last = df.iloc[-1]
-        up, down = is_strong_breakout(df)
+        prev = df.iloc[-2]
         price = last["Close"]
+
+        # ✅ شرط تحرك السهم ≥ 10 دولار
+        if abs(price - prev["Close"]) < 10:
+            msg += f"{name} ({symbol}): تم الاستبعاد – الحركة أقل من 10 دولار\n\n"
+            continue
+
+        # ✅ تحليل فني متكامل
+        up_breakout, down_breakout = is_strong_breakout(df)
+        direction = "صعود قوي" if up_breakout else "هبوط قوي" if down_breakout else "لا يوجد"
+
+        # (اختياري) نموذج شمعة يابانية بسيطة – مثال engulfing
+        candle_body = abs(last["Close"] - last["Open"])
+        candle_strength = "شمعة ابتلاعية" if candle_body > abs(prev["Close"] - prev["Open"]) and ((last["Close"] > last["Open"]) != (prev["Close"] > prev["Open"])) else "عادية"
 
         msg += f"{name} ({symbol}):\n"
         msg += f"السعر: {price:.2f}\n"
         msg += f"RSI: {last['RSI']:.2f}\n"
         msg += f"MACD: {last['MACD']:.2f} / {last['Signal']:.2f}\n"
-        msg += f"Breakout: {'صعود قوي' if up else 'هبوط قوي' if down else 'لا يوجد'}\n\n"
+        msg += f"Breakout: {direction}\n"
+        msg += f"نمط الشمعة: {candle_strength}\n\n"
 
     send_telegram_message(msg.strip())
 
