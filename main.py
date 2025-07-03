@@ -65,9 +65,9 @@ assets = {
     "KO": "Coca-Cola"
 }
 
-def fetch_weekly_data(symbol):
+def fetch_custom_data(symbol, interval, candles=100):
     try:
-        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=5y&interval=1wk"
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=6mo&interval={interval}"
         headers = {"User-Agent": "Mozilla/5.0"}
         response = requests.get(url, headers=headers)
         data = response.json()
@@ -82,10 +82,22 @@ def fetch_weekly_data(symbol):
         })
         df["Date"] = pd.to_datetime(timestamps, unit="s")
         df.set_index("Date", inplace=True)
-        return df.dropna().iloc[-100:]
+        return df.dropna().iloc[-candles:]
     except Exception as e:
-        print(f"fetch_data error ({symbol}): {e}")
+        print(f"fetch_data error ({symbol}, {interval}): {e}")
         return None
+
+def get_direction(df):
+    if df is None or len(df) < 20:
+        return None
+    df = calculate_indicators(df)
+    last = df.iloc[-1]
+    prev = df.iloc[-2]
+    return (
+        "صاعدة" if last["Close"] > last["Open"] and last["EMA9"] > last["EMA21"] else
+        "هابطة" if last["Close"] < last["Open"] and last["EMA9"] < last["EMA21"] else
+        "جانبية"
+    )
 
 def calculate_indicators(df):
     df["EMA9"] = df["Close"].ewm(span=9).mean()
