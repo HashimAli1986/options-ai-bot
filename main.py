@@ -30,6 +30,7 @@ def send_telegram_message(text):
         print(f"Telegram Error: {e}")
 
 assets = {
+    "SPX": {"symbol": "^GSPC"},
     "MSTR": "MicroStrategy",
     "APP": "AppLovin",
     "AVGO": "Broadcom",
