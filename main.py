@@ -186,7 +186,7 @@ def generate_recommendation(df, is_index=False):
 
 def analyze_and_send():
     current_time = datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')
-    msg = f"📊 **تحديث التحليل الأسبوعي**\n"
+    msg = f"📊 **تحديث التحليل الأسبوعي المتقدم**\n"
     msg += f"⌚ الوقت: {current_time}\n"
     msg += "--------------------------------\n\n"
     
@@ -196,7 +196,18 @@ def analyze_and_send():
         sp500 = calculate_indicators(sp500)
         sp500_last = sp500.iloc[-1]
         sp500_change = ((sp500_last["Close"] - sp500.iloc[-2]["Close"]) / sp500.iloc[-2]["Close"]) * 100
-        msg += f"**مؤشر S&P 500:** {sp500_last['Close']:.2f} ({sp500_change:+.2f}%)\n\n"
+        sp500_analysis = generate_recommendation(sp500, is_index=True)
+        
+        # تحليل S&P500 مفصل
+        msg += f"**🌎 S&P 500 (^GSPC)**\n"
+        msg += f"▶️ السعر: {sp500_last['Close']:.2f} ({sp500_change:+.2f}%)\n"
+        msg += f"▶️ التوصية: **{sp500_analysis['recommendation']}**\n"
+        msg += f"▶️ RSI: {sp500_last['RSI']:.2f} ({sp500_analysis['rsi_signal']})\n"
+        msg += f"▶️ قوة الاتجاه: {sp500_analysis['trend_strength']}%\n"
+        msg += f"▶️ التقلب: {sp500_analysis['volatility']}\n"
+        msg += f"▶️ {sp500_analysis['relative_strength']}\n"
+        msg += f"▶️ الدعم: {sp500_analysis['support']:.2f} | المقاومة: {sp500_analysis['resistance']:.2f}\n\n"
+        msg += "--------------------------------\n\n"
     
     for symbol, name in assets.items():
         if symbol == "^GSPC":
@@ -215,7 +226,8 @@ def analyze_and_send():
         if sp500 is not None:
             stock_perf = (last["Close"] / df.iloc[-2]["Close"] - 1) * 100
             relative_strength = stock_perf - sp500_change
-            market_perf = f"\nالأداء النسبي: {relative_strength:+.2f}% vs السوق"
+            strength_icon = "💪" if relative_strength > 0 else "⚠️"
+            market_perf = f"\n{strength_icon} الأداء النسبي: {relative_strength:+.2f}% vs السوق"
         
         # بناء الرسالة
         msg += f"**{name} ({symbol})**\n"
@@ -223,13 +235,15 @@ def analyze_and_send():
         msg += f"▶️ التوصية: **{analysis['recommendation']}**\n"
         msg += f"▶️ RSI: {last['RSI']:.2f} ({analysis['rsi_signal']})\n"
         msg += f"▶️ MACD: {analysis['macd_signal']}\n"
+        msg += f"▶️ قوة الاتجاه: {analysis['trend_strength']}%\n"
         
         if analysis['target_price']:
-            direction = "▲" if analysis['recommendation'] == "شراء" else "▼"
-            msg += f"▶️ السعر المستهدف: {direction} {analysis['target_price']:.2f}\n"
+            direction = "▲" if "شراء" in analysis['recommendation'] else "▼"
+            change_pct = ((analysis['target_price'] - last['Close']) / last['Close']) * 100
+            msg += f"▶️ السعر المستهدف: {direction} {analysis['target_price']:.2f} ({change_pct:+.1f}%)\n"
         
         msg += f"▶️ الدعم: {analysis['support']:.2f} | المقاومة: {analysis['resistance']:.2f}\n"
-        msg += f"▶️ الحجم: {last['Volume']/1e6:.1f}M (المتوسط: {last['Vol_MA20']/1e6:.1f}M){market_perf}\n"
+        msg += f"▶️ التقلب: {analysis['volatility']}{market_perf}\n"
         msg += "--------------------------------\n\n"
     
     send_telegram_message(msg)
