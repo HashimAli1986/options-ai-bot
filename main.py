@@ -1,5 +1,6 @@
 import requests
 import pandas as pd
+import numpy as np
 import time
 from datetime import datetime
 from flask import Flask
@@ -30,6 +31,7 @@ def send_telegram_message(text):
         print(f"Telegram Error: {e}")
 
 assets = {
+    "^GSPC": "S&P 500",
     "MSTR": "MicroStrategy",
     "APP": "AppLovin",
     "AVGO": "Broadcom",
@@ -43,26 +45,9 @@ assets = {
     "LLY": "Eli Lilly",
     "CRWD": "CrowdStrike",
     "MSFT": "Microsoft",
-    "AMD": "Advanced Micro Devices",
-    "NVDA": "NVIDIA",
-    "GOOGL": "Alphabet (Class A)",
-    "GOOG": "Alphabet (Class C)",
-    "AMZN": "Amazon",
-    "V": "Visa",
-    "JNJ": "Johnson & Johnson",
-    "UNH": "UnitedHealth",
-    "JPM": "JPMorgan Chase",
-    "XOM": "Exxon Mobil",
-    "PG": "Procter & Gamble",
-    "MA": "Mastercard",
-    "HD": "Home Depot",
-    "COST": "Costco",
-    "MRK": "Merck",
-    "PEP": "PepsiCo",
-    "ABBV": "AbbVie",
-    "WMT": "Walmart",
-    "KO": "Coca-Cola"
+    "AMD": "Advanced Micro Devices"
 }
+
 def fetch_weekly_data(symbol):
     try:
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=5y&interval=1wk"
@@ -76,7 +61,8 @@ def fetch_weekly_data(symbol):
             "Open": prices["open"],
             "High": prices["high"],
             "Low": prices["low"],
-            "Close": prices["close"]
+            "Close": prices["close"],
+            "Volume": prices["volume"]
         })
         df["Date"] = pd.to_datetime(timestamps, unit="s")
         df.set_index("Date", inplace=True)
@@ -86,47 +72,136 @@ def fetch_weekly_data(symbol):
         return None
 
 def calculate_indicators(df):
+    # المتوسطات المتحركة
     df["EMA9"] = df["Close"].ewm(span=9).mean()
     df["EMA21"] = df["Close"].ewm(span=21).mean()
+    df["EMA50"] = df["Close"].ewm(span=50).mean()
+    
+    # RSI
     delta = df["Close"].diff()
     gain = delta.clip(lower=0).rolling(14).mean()
     loss = -delta.clip(upper=0).rolling(14).mean()
     rs = gain / loss
     df["RSI"] = 100 - (100 / (1 + rs))
+    
+    # MACD
     df["MACD"] = df["Close"].ewm(span=12).mean() - df["Close"].ewm(span=26).mean()
     df["Signal"] = df["MACD"].ewm(span=9).mean()
+    
+    # القنوات السعرية
+    df['Upper_Band'] = df['High'].rolling(20).max()
+    df['Lower_Band'] = df['Low'].rolling(20).min()
+    
+    # حجم التداول
+    df['Vol_MA20'] = df['Volume'].rolling(20).mean()
+    
     return df
 
-def is_strong_breakout(df):
+def generate_recommendation(df):
     last = df.iloc[-1]
     prev = df.iloc[-2]
-    rsi = last["RSI"]
-    macd_cross = last["MACD"] > last["Signal"] and prev["MACD"] < prev["Signal"]
-    up_breakout = last["Close"] > prev["High"] and rsi < 70 and macd_cross
-    down_breakout = last["Close"] < prev["Low"] and rsi > 30 and not macd_cross
-    return up_breakout, down_breakout
+    
+    # تحليل المؤشرات
+    rsi_signal = "محايد"
+    if last["RSI"] > 70:
+        rsi_signal = "مشترى قوي (تشبع بيع)" 
+    elif last["RSI"] < 30:
+        rsi_signal = "بيع قوي (تشبع شراء)"
+    
+    macd_signal = "محايد"
+    if last["MACD"] > last["Signal"] and prev["MACD"] <= prev["Signal"]:
+        macd_signal = "إشارة شراء"
+    elif last["MACD"] < last["Signal"] and prev["MACD"] >= prev["Signal"]:
+        macd_signal = "إشارة بيع"
+    
+    # تحليل القنوات السعرية
+    price_action = ""
+    target_price = None
+    support = df['Lower_Band'].iloc[-1]
+    resistance = df['Upper_Band'].iloc[-1]
+    
+    if last["Close"] > resistance:
+        price_action = "كسر مقاومة 🔺"
+        target_price = resistance + (resistance - support) * 0.5  # 50% من القناة
+    elif last["Close"] < support:
+        price_action = "كسر دعم 🔻"
+        target_price = support - (resistance - support) * 0.5
+    else:
+        price_action = "تداول ضمن القناة ↔️"
+        target_price = None
+    
+    # التوصية النهائية
+    recommendation = "محايد"
+    if (last["Close"] > last["EMA21"] > last["EMA50"] and 
+        last["RSI"] > 50 and 
+        last["MACD"] > last["Signal"] and
+        last["Volume"] > last["Vol_MA20"]):
+        recommendation = "شراء"
+    elif (last["Close"] < last["EMA21"] < last["EMA50"] and 
+          last["RSI"] < 50 and 
+          last["MACD"] < last["Signal"] and
+          last["Volume"] > last["Vol_MA20"]):
+        recommendation = "بيع"
+    
+    return {
+        "recommendation": recommendation,
+        "rsi_signal": rsi_signal,
+        "macd_signal": macd_signal,
+        "price_action": price_action,
+        "support": support,
+        "resistance": resistance,
+        "target_price": target_price
+    }
 
 def analyze_and_send():
-    msg = f"تحديث الساعة {datetime.utcnow().strftime('%H:%M')} UTC – تحليل أسبوعي\n\n"
-
+    current_time = datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')
+    msg = f"📊 **تحديث التحليل الأسبوعي**\n"
+    msg += f"⌚ الوقت: {current_time}\n"
+    msg += "--------------------------------\n\n"
+    
+    # جلب بيانات S&P500 أولاً للمقارنة
+    sp500 = fetch_weekly_data("^GSPC")
+    if sp500 is not None:
+        sp500 = calculate_indicators(sp500)
+        sp500_last = sp500.iloc[-1]
+        sp500_change = ((sp500_last["Close"] - sp500.iloc[-2]["Close"]) / sp500.iloc[-2]["Close"]) * 100
+        msg += f"**مؤشر S&P 500:** {sp500_last['Close']:.2f} ({sp500_change:+.2f}%)\n\n"
+    
     for symbol, name in assets.items():
+        if symbol == "^GSPC":
+            continue
+            
         df = fetch_weekly_data(symbol)
         if df is None or len(df) < 20:
-            msg += f"{name} ({symbol}): البيانات غير متوفرة\n\n"
             continue
-
+            
         df = calculate_indicators(df)
         last = df.iloc[-1]
-        up, down = is_strong_breakout(df)
-        price = last["Close"]
-
-        msg += f"{name} ({symbol}):\n"
-        msg += f"السعر: {price:.2f}\n"
-        msg += f"RSI: {last['RSI']:.2f}\n"
-        msg += f"MACD: {last['MACD']:.2f} / {last['Signal']:.2f}\n"
-        msg += f"Breakout: {'صعود قوي' if up else 'هبوط قوي' if down else 'لا يوجد'}\n\n"
-
-    send_telegram_message(msg.strip())
+        analysis = generate_recommendation(df)
+        
+        # حساب الأداء مقابل السوق
+        market_perf = ""
+        if sp500 is not None:
+            stock_perf = (last["Close"] / df.iloc[-2]["Close"] - 1) * 100
+            relative_strength = stock_perf - sp500_change
+            market_perf = f"\nالأداء النسبي: {relative_strength:+.2f}% vs السوق"
+        
+        # بناء الرسالة
+        msg += f"**{name} ({symbol})**\n"
+        msg += f"▶️ السعر: {last['Close']:.2f}\n"
+        msg += f"▶️ التوصية: **{analysis['recommendation']}**\n"
+        msg += f"▶️ RSI: {last['RSI']:.2f} ({analysis['rsi_signal']})\n"
+        msg += f"▶️ MACD: {analysis['macd_signal']}\n"
+        
+        if analysis['target_price']:
+            direction = "▲" if analysis['recommendation'] == "شراء" else "▼"
+            msg += f"▶️ السعر المستهدف: {direction} {analysis['target_price']:.2f}\n"
+        
+        msg += f"▶️ الدعم: {analysis['support']:.2f} | المقاومة: {analysis['resistance']:.2f}\n"
+        msg += f"▶️ الحجم: {last['Volume']/1e6:.1f}M (المتوسط: {last['Vol_MA20']/1e6:.1f}M){market_perf}\n"
+        msg += "--------------------------------\n\n"
+    
+    send_telegram_message(msg)
 
 def hourly_loop():
     last_sent_hour = -1
@@ -139,5 +214,5 @@ def hourly_loop():
 
 if __name__ == "__main__":
     keep_alive()
-    send_telegram_message("✅ التحليل الأسبوعي للشركات")
+    send_telegram_message("✅ بدأ العمل: نظام التحليل الأسبوعي المتقدم")
     Thread(target=hourly_loop).start()
