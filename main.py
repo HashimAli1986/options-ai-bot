@@ -30,7 +30,6 @@ def send_telegram_message(text):
         print(f"Telegram Error: {e}")
 
 assets = {
-    "SPX": {"symbol": "^GSPC"},
     "MSTR": "MicroStrategy",
     "APP": "AppLovin",
     "AVGO": "Broadcom",
@@ -44,31 +43,12 @@ assets = {
     "LLY": "Eli Lilly",
     "CRWD": "CrowdStrike",
     "MSFT": "Microsoft",
-    "AMD": "Advanced Micro Devices",
-    "NVDA": "NVIDIA",
-    "GOOGL": "Alphabet (Class A)",
-    "GOOG": "Alphabet (Class C)",
-    "AMZN": "Amazon",
-    "BRK.B": "Berkshire Hathaway",
-    "V": "Visa",
-    "JNJ": "Johnson & Johnson",
-    "UNH": "UnitedHealth",
-    "JPM": "JPMorgan Chase",
-    "XOM": "Exxon Mobil",
-    "PG": "Procter & Gamble",
-    "MA": "Mastercard",
-    "HD": "Home Depot",
-    "COST": "Costco",
-    "MRK": "Merck",
-    "PEP": "PepsiCo",
-    "ABBV": "AbbVie",
-    "WMT": "Walmart",
-    "KO": "Coca-Cola"
+    "AMD": "Advanced Micro Devices"
 }
 
-def fetch_custom_data(symbol, interval, candles=100):
+def fetch_weekly_data(symbol):
     try:
-        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=6mo&interval={interval}"
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=5y&interval=1wk"
         headers = {"User-Agent": "Mozilla/5.0"}
         response = requests.get(url, headers=headers)
         data = response.json()
@@ -83,22 +63,10 @@ def fetch_custom_data(symbol, interval, candles=100):
         })
         df["Date"] = pd.to_datetime(timestamps, unit="s")
         df.set_index("Date", inplace=True)
-        return df.dropna().iloc[-candles:]
+        return df.dropna().iloc[-100:]
     except Exception as e:
-        print(f"fetch_data error ({symbol}, {interval}): {e}")
+        print(f"fetch_data error ({symbol}): {e}")
         return None
-
-def get_direction(df):
-    if df is None or len(df) < 20:
-        return None
-    df = calculate_indicators(df)
-    last = df.iloc[-1]
-    prev = df.iloc[-2]
-    return (
-        "صاعدة" if last["Close"] > last["Open"] and last["EMA9"] > last["EMA21"] else
-        "هابطة" if last["Close"] < last["Open"] and last["EMA9"] < last["EMA21"] else
-        "جانبية"
-    )
 
 def calculate_indicators(df):
     df["EMA9"] = df["Close"].ewm(span=9).mean()
