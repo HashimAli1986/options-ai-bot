@@ -43,9 +43,27 @@ assets = {
     "LLY": "Eli Lilly",
     "CRWD": "CrowdStrike",
     "MSFT": "Microsoft",
-    "AMD": "Advanced Micro Devices"
+    "AMD": "Advanced Micro Devices",
+    "NVDA": "NVIDIA",
+    "GOOGL": "Alphabet (Class A)",
+    "GOOG": "Alphabet (Class C)",
+    "AMZN": "Amazon",
+    "BRK.B": "Berkshire Hathaway",
+    "V": "Visa",
+    "JNJ": "Johnson & Johnson",
+    "UNH": "UnitedHealth",
+    "JPM": "JPMorgan Chase",
+    "XOM": "Exxon Mobil",
+    "PG": "Procter & Gamble",
+    "MA": "Mastercard",
+    "HD": "Home Depot",
+    "COST": "Costco",
+    "MRK": "Merck",
+    "PEP": "PepsiCo",
+    "ABBV": "AbbVie",
+    "WMT": "Walmart",
+    "KO": "Coca-Cola"
 }
-
 def fetch_weekly_data(symbol):
     try:
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=5y&interval=1wk"
