@@ -32,7 +32,7 @@ def send_telegram_message(text):
 
 assets = {
     "^GSPC": "S&P 500",
-   "MSTR": "MicroStrategy",
+    "MSTR": "MicroStrategy",
     "APP": "AppLovin",
     "AVGO": "Broadcom",
     "SMCI": "Super Micro Computer",
