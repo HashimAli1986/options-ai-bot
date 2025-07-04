@@ -45,26 +45,7 @@ assets = {
     "LLY": "Eli Lilly",
     "CRWD": "CrowdStrike",
     "MSFT": "Microsoft",
-    "AMD": "Advanced Micro Devices",
-    "NVDA": "NVIDIA",
-    "GOOGL": "Alphabet (Class A)",
-    "GOOG": "Alphabet (Class C)",
-    "AMZN": "Amazon",
-    "BRK.B": "Berkshire Hathaway",
-    "V": "Visa",
-    "JNJ": "Johnson & Johnson",
-    "UNH": "UnitedHealth",
-    "JPM": "JPMorgan Chase",
-    "XOM": "Exxon Mobil",
-    "PG": "Procter & Gamble",
-    "MA": "Mastercard",
-    "HD": "Home Depot",
-    "COST": "Costco",
-    "MRK": "Merck",
-    "PEP": "PepsiCo",
-    "ABBV": "AbbVie",
-    "WMT": "Walmart",
-    "KO": "Coca-Cola"
+    "AMD": "Advanced Micro Devices"
 }
 
 def fetch_weekly_data(symbol):
@@ -116,16 +97,16 @@ def calculate_indicators(df):
     
     return df
 
-def generate_recommendation(df, is_index=False):
+def generate_recommendation(df):
     last = df.iloc[-1]
     prev = df.iloc[-2]
     
-    # تحليل المؤشرات الأساسية
+    # تحليل المؤشرات
     rsi_signal = "محايد"
     if last["RSI"] > 70:
-        rsi_signal = "تشبع شراء" 
+        rsi_signal = "مشترى قوي (تشبع بيع)" 
     elif last["RSI"] < 30:
-        rsi_signal = "تشبع بيع"
+        rsi_signal = "بيع قوي (تشبع شراء)"
     
     macd_signal = "محايد"
     if last["MACD"] > last["Signal"] and prev["MACD"] <= prev["Signal"]:
@@ -133,25 +114,15 @@ def generate_recommendation(df, is_index=False):
     elif last["MACD"] < last["Signal"] and prev["MACD"] >= prev["Signal"]:
         macd_signal = "إشارة بيع"
     
-    # تحليل القنوات السعرية مع معايير مختلفة للمؤشرات
+    # تحليل القنوات السعرية
     price_action = ""
     target_price = None
     support = df['Lower_Band'].iloc[-1]
     resistance = df['Upper_Band'].iloc[-1]
     
-    # معايير خاصة بالمؤشرات
-    breakout_threshold = 0.015 if is_index else 0.03
-    volatility = (resistance - support) / last["Close"]
-    
-    if last["Close"] > resistance * (1 + breakout_threshold):
-        price_action = "كسر مقاومة قوي 🔺"
-        target_price = resistance + (resistance - support) * 0.618  # نسبة فيبوناتشي
-    elif last["Close"] > resistance:
+    if last["Close"] > resistance:
         price_action = "كسر مقاومة 🔺"
-        target_price = resistance + (resistance - support) * 0.5
-    elif last["Close"] < support * (1 - breakout_threshold):
-        price_action = "كسر دعم قوي 🔻"
-        target_price = support - (resistance - support) * 0.618
+        target_price = resistance + (resistance - support) * 0.5  # 50% من القناة
     elif last["Close"] < support:
         price_action = "كسر دعم 🔻"
         target_price = support - (resistance - support) * 0.5
@@ -159,37 +130,18 @@ def generate_recommendation(df, is_index=False):
         price_action = "تداول ضمن القناة ↔️"
         target_price = None
     
-    # التوصية النهائية مع معايير مختلفة للمؤشرات
+    # التوصية النهائية
     recommendation = "محايد"
-    trend_strength = 0
-    
-    # قوة الاتجاه (0-100%)
-    if last["Close"] > last["EMA21"] > last["EMA50"]:
-        trend_strength = min(100, int((last["Close"] - last["EMA50"]) / last["EMA50"] * 1000))
-        if is_index:
-            if trend_strength > 30 and last["RSI"] < 65 and last["Volume"] > last["Vol_MA20"]:
-                recommendation = "شراء"
-        else:
-            if trend_strength > 50 and last["RSI"] < 70 and last["Volume"] > last["Vol_MA20"] * 1.2:
-                recommendation = "شراء قوي" if trend_strength > 70 else "شراء"
-                
-    elif last["Close"] < last["EMA21"] < last["EMA50"]:
-        trend_strength = min(100, int((last["EMA50"] - last["Close"]) / last["EMA50"] * 1000))
-        if is_index:
-            if trend_strength > 25 and last["RSI"] > 35:
-                recommendation = "بيع"
-        else:
-            if trend_strength > 40 and last["RSI"] > 30 and last["Volume"] > last["Vol_MA20"]:
-                recommendation = "بيع قوي" if trend_strength > 60 else "بيع"
-    
-    # تحليل القوة النسبية (للمؤشرات)
-    relative_strength = ""
-    if is_index:
-        ma200 = df["Close"].rolling(200).mean()
-        if last["Close"] > ma200.iloc[-1]:
-            relative_strength = f"🔷 فوق المتوسط 200 أسبوع ({ma200.iloc[-1]:.2f})"
-        else:
-            relative_strength = f"🔻 تحت المتوسط 200 أسبوع ({ma200.iloc[-1]:.2f})"
+    if (last["Close"] > last["EMA21"] > last["EMA50"] and 
+        last["RSI"] > 50 and 
+        last["MACD"] > last["Signal"] and
+        last["Volume"] > last["Vol_MA20"]):
+        recommendation = "شراء"
+    elif (last["Close"] < last["EMA21"] < last["EMA50"] and 
+          last["RSI"] < 50 and 
+          last["MACD"] < last["Signal"] and
+          last["Volume"] > last["Vol_MA20"]):
+        recommendation = "بيع"
     
     return {
         "recommendation": recommendation,
@@ -198,15 +150,12 @@ def generate_recommendation(df, is_index=False):
         "price_action": price_action,
         "support": support,
         "resistance": resistance,
-        "target_price": target_price,
-        "trend_strength": trend_strength,
-        "volatility": f"{(volatility*100):.1f}%",
-        "relative_strength": relative_strength
+        "target_price": target_price
     }
 
 def analyze_and_send():
     current_time = datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')
-    msg = f"📊 **تحديث التحليل الأسبوعي المتقدم**\n"
+    msg = f"📊 **تحديث التحليل الأسبوعي**\n"
     msg += f"⌚ الوقت: {current_time}\n"
     msg += "--------------------------------\n\n"
     
@@ -216,18 +165,7 @@ def analyze_and_send():
         sp500 = calculate_indicators(sp500)
         sp500_last = sp500.iloc[-1]
         sp500_change = ((sp500_last["Close"] - sp500.iloc[-2]["Close"]) / sp500.iloc[-2]["Close"]) * 100
-        sp500_analysis = generate_recommendation(sp500, is_index=True)
-        
-        # تحليل S&P500 مفصل
-        msg += f"**🌎 S&P 500 (^GSPC)**\n"
-        msg += f"▶️ السعر: {sp500_last['Close']:.2f} ({sp500_change:+.2f}%)\n"
-        msg += f"▶️ التوصية: **{sp500_analysis['recommendation']}**\n"
-        msg += f"▶️ RSI: {sp500_last['RSI']:.2f} ({sp500_analysis['rsi_signal']})\n"
-        msg += f"▶️ قوة الاتجاه: {sp500_analysis['trend_strength']}%\n"
-        msg += f"▶️ التقلب: {sp500_analysis['volatility']}\n"
-        msg += f"▶️ {sp500_analysis['relative_strength']}\n"
-        msg += f"▶️ الدعم: {sp500_analysis['support']:.2f} | المقاومة: {sp500_analysis['resistance']:.2f}\n\n"
-        msg += "--------------------------------\n\n"
+        msg += f"**مؤشر S&P 500:** {sp500_last['Close']:.2f} ({sp500_change:+.2f}%)\n\n"
     
     for symbol, name in assets.items():
         if symbol == "^GSPC":
@@ -246,8 +184,7 @@ def analyze_and_send():
         if sp500 is not None:
             stock_perf = (last["Close"] / df.iloc[-2]["Close"] - 1) * 100
             relative_strength = stock_perf - sp500_change
-            strength_icon = "💪" if relative_strength > 0 else "⚠️"
-            market_perf = f"\n{strength_icon} الأداء النسبي: {relative_strength:+.2f}% vs السوق"
+            market_perf = f"\nالأداء النسبي: {relative_strength:+.2f}% vs السوق"
         
         # بناء الرسالة
         msg += f"**{name} ({symbol})**\n"
@@ -255,15 +192,13 @@ def analyze_and_send():
         msg += f"▶️ التوصية: **{analysis['recommendation']}**\n"
         msg += f"▶️ RSI: {last['RSI']:.2f} ({analysis['rsi_signal']})\n"
         msg += f"▶️ MACD: {analysis['macd_signal']}\n"
-        msg += f"▶️ قوة الاتجاه: {analysis['trend_strength']}%\n"
         
         if analysis['target_price']:
-            direction = "▲" if "شراء" in analysis['recommendation'] else "▼"
-            change_pct = ((analysis['target_price'] - last['Close']) / last['Close']) * 100
-            msg += f"▶️ السعر المستهدف: {direction} {analysis['target_price']:.2f} ({change_pct:+.1f}%)\n"
+            direction = "▲" if analysis['recommendation'] == "شراء" else "▼"
+            msg += f"▶️ السعر المستهدف: {direction} {analysis['target_price']:.2f}\n"
         
         msg += f"▶️ الدعم: {analysis['support']:.2f} | المقاومة: {analysis['resistance']:.2f}\n"
-        msg += f"▶️ التقلب: {analysis['volatility']}{market_perf}\n"
+        msg += f"▶️ الحجم: {last['Volume']/1e6:.1f}M (المتوسط: {last['Vol_MA20']/1e6:.1f}M){market_perf}\n"
         msg += "--------------------------------\n\n"
     
     send_telegram_message(msg)
