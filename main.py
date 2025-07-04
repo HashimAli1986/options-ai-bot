@@ -101,88 +101,108 @@ def generate_recommendation(df, is_index=False):
     last = df.iloc[-1]
     prev = df.iloc[-2]
     
-    # تحليل المؤشرات الأساسية
+    # تحسين حساب المتوسطات المتحركة
+    df["EMA9"] = df["Close"].ewm(span=9, min_periods=1).mean()
+    df["EMA21"] = df["Close"].ewm(span=21, min_periods=1).mean()
+    df["EMA50"] = df["Close"].ewm(span=50, min_periods=1).mean()
+    
+    # حساب RSI أكثر دقة
+    delta = df["Close"].diff(1)
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.ewm(alpha=1/14, min_periods=14).mean()
+    avg_loss = loss.ewm(alpha=1/14, min_periods=14).mean()
+    rs = avg_gain / avg_loss
+    df["RSI"] = 100 - (100 / (1 + rs))
+    
+    # تحسين حساب MACD
+    exp12 = df["Close"].ewm(span=12, min_periods=1).mean()
+    exp26 = df["Close"].ewm(span=26, min_periods=1).mean()
+    df["MACD"] = exp12 - exp26
+    df["Signal"] = df["MACD"].ewm(span=9, min_periods=1).mean()
+    
+    # حساب القنوات السعرية مع فترة أطول للمؤشرات
+    window = 15 if is_index else 20
+    df['Upper_Band'] = df['High'].rolling(window=window, min_periods=1).max()
+    df['Lower_Band'] = df['Low'].rolling(window=window, min_periods=1).min()
+    
+    # حساب المتوسط المتحرك 200 أسبوع بشكل صحيح
+    if len(df) >= 200:
+        ma200 = df["Close"].rolling(200).mean().iloc[-1]
+    else:
+        ma200 = df["Close"].mean()
+    
+    # تحليل الإشارات
+    rsi = df["RSI"].iloc[-1]
     rsi_signal = "محايد"
-    if last["RSI"] > 70:
+    if rsi > 75:
         rsi_signal = "تشبع شراء" 
-    elif last["RSI"] < 30:
+    elif rsi < 25:
         rsi_signal = "تشبع بيع"
     
     macd_signal = "محايد"
-    if last["MACD"] > last["Signal"] and prev["MACD"] <= prev["Signal"]:
+    macd_cross_up = last["MACD"] > last["Signal"] and prev["MACD"] <= prev["Signal"]
+    macd_cross_down = last["MACD"] < last["Signal"] and prev["MACD"] >= prev["Signal"]
+    
+    if macd_cross_up:
         macd_signal = "إشارة شراء"
-    elif last["MACD"] < last["Signal"] and prev["MACD"] >= prev["Signal"]:
+    elif macd_cross_down:
         macd_signal = "إشارة بيع"
     
-    # تحليل القنوات السعرية مع معايير مختلفة للمؤشرات
-    price_action = ""
-    target_price = None
-    support = df['Lower_Band'].iloc[-1]
-    resistance = df['Upper_Band'].iloc[-1]
-    
-    # معايير خاصة بالمؤشرات
-    breakout_threshold = 0.015 if is_index else 0.03
-    volatility = (resistance - support) / last["Close"]
-    
-    if last["Close"] > resistance * (1 + breakout_threshold):
-        price_action = "كسر مقاومة قوي 🔺"
-        target_price = resistance + (resistance - support) * 0.618  # نسبة فيبوناتشي
-    elif last["Close"] > resistance:
-        price_action = "كسر مقاومة 🔺"
-        target_price = resistance + (resistance - support) * 0.5
-    elif last["Close"] < support * (1 - breakout_threshold):
-        price_action = "كسر دعم قوي 🔻"
-        target_price = support - (resistance - support) * 0.618
-    elif last["Close"] < support:
-        price_action = "كسر دعم 🔻"
-        target_price = support - (resistance - support) * 0.5
-    else:
-        price_action = "تداول ضمن القناة ↔️"
-        target_price = None
-    
-    # التوصية النهائية مع معايير مختلفة للمؤشرات
-    recommendation = "محايد"
+    # تحليل قوة الاتجاه
     trend_strength = 0
-    
-    # قوة الاتجاه (0-100%)
     if last["Close"] > last["EMA21"] > last["EMA50"]:
         trend_strength = min(100, int((last["Close"] - last["EMA50"]) / last["EMA50"] * 1000))
-        if is_index:
-            if trend_strength > 30 and last["RSI"] < 65 and last["Volume"] > last["Vol_MA20"]:
-                recommendation = "شراء"
-        else:
-            if trend_strength > 50 and last["RSI"] < 70 and last["Volume"] > last["Vol_MA20"] * 1.2:
-                recommendation = "شراء قوي" if trend_strength > 70 else "شراء"
-                
     elif last["Close"] < last["EMA21"] < last["EMA50"]:
         trend_strength = min(100, int((last["EMA50"] - last["Close"]) / last["EMA50"] * 1000))
-        if is_index:
-            if trend_strength > 25 and last["RSI"] > 35:
-                recommendation = "بيع"
-        else:
-            if trend_strength > 40 and last["RSI"] > 30 and last["Volume"] > last["Vol_MA20"]:
-                recommendation = "بيع قوي" if trend_strength > 60 else "بيع"
     
-    # تحليل القوة النسبية (للمؤشرات)
+    # تحليل القوة النسبية للمؤشرات
     relative_strength = ""
     if is_index:
-        ma200 = df["Close"].rolling(200).mean()
-        if last["Close"] > ma200.iloc[-1]:
-            relative_strength = f"🔷 فوق المتوسط 200 أسبوع ({ma200.iloc[-1]:.2f})"
+        if last["Close"] > ma200:
+            relative_strength = f"🔷 فوق المتوسط 200 أسبوع ({ma200:.2f})"
         else:
-            relative_strength = f"🔻 تحت المتوسط 200 أسبوع ({ma200.iloc[-1]:.2f})"
+            relative_strength = f"🔻 تحت المتوسط 200 أسبوع ({ma200:.2f})"
+    
+    # تحسين معايير التوصية
+    recommendation = "محايد"
+    if is_index:
+        # معايير خاصة بالمؤشرات
+        if trend_strength > 70 and rsi < 75 and macd_cross_up:
+            recommendation = "شراء قوي"
+        elif trend_strength > 50 and rsi < 70:
+            recommendation = "شراء"
+        elif rsi > 75 and trend_strength > 60:
+            recommendation = "حذر (تشبع شراء)"
+        elif trend_strength > 40 and rsi > 40 and macd_cross_down:
+            recommendation = "بيع"
+    else:
+        # معايير الأسهم
+        volume_condition = last["Volume"] > df["Volume"].rolling(20).mean().iloc[-1] * 1.2
+        
+        if trend_strength > 60 and rsi < 65 and volume_condition and macd_cross_up:
+            recommendation = "شراء قوي"
+        elif trend_strength > 45 and rsi < 70 and volume_condition:
+            recommendation = "شراء"
+        elif trend_strength > 50 and rsi > 35 and volume_condition and macd_cross_down:
+            recommendation = "بيع"
+        elif rsi > 75 and trend_strength > 60:
+            recommendation = "حذر (تشبع شراء)"
+    
+    # حساب التقلب بشكل صحيح
+    volatility = (df['Upper_Band'].iloc[-1] - df['Lower_Band'].iloc[-1]) / last["Close"]
     
     return {
         "recommendation": recommendation,
         "rsi_signal": rsi_signal,
         "macd_signal": macd_signal,
-        "price_action": price_action,
-        "support": support,
-        "resistance": resistance,
-        "target_price": target_price,
+        "support": df['Lower_Band'].iloc[-1],
+        "resistance": df['Upper_Band'].iloc[-1],
+        "target_price": None,
         "trend_strength": trend_strength,
         "volatility": f"{(volatility*100):.1f}%",
-        "relative_strength": relative_strength
+        "relative_strength": relative_strength,
+        "ma200": ma200
     }
 
 def analyze_and_send():
