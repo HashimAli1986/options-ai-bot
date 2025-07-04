@@ -48,7 +48,6 @@ assets = {
     "GOOGL": "Alphabet (Class A)",
     "GOOG": "Alphabet (Class C)",
     "AMZN": "Amazon",
-    "BRK.B": "Berkshire Hathaway",
     "V": "Visa",
     "JNJ": "Johnson & Johnson",
     "UNH": "UnitedHealth",
