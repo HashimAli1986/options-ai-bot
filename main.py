@@ -45,7 +45,10 @@ assets = {
     "LLY": "Eli Lilly",
     "CRWD": "CrowdStrike",
     "MSFT": "Microsoft",
-    "AMD": "Advanced Micro Devices"
+    "AMD": "Advanced Micro Devices",
+     "GOOGL": "Alphabet (Class A)",
+    "GOOG": "Alphabet (Class C)",
+    "AMZN": "Amazon"
 }
 
 def fetch_weekly_data(symbol):
