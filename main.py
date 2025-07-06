@@ -49,21 +49,6 @@ assets = {
     "GOOGL": "Alphabet (Class A)",
     "GOOG": "Alphabet (Class C)",
     "AMZN": "Amazon",
-    "BRK.B": "Berkshire Hathaway",
-    "V": "Visa",
-    "JNJ": "Johnson & Johnson",
-    "UNH": "UnitedHealth",
-    "JPM": "JPMorgan Chase",
-    "XOM": "Exxon Mobil",
-    "PG": "Procter & Gamble",
-    "MA": "Mastercard",
-    "HD": "Home Depot",
-    "COST": "Costco",
-    "MRK": "Merck",
-    "PEP": "PepsiCo",
-    "ABBV": "AbbVie",
-    "WMT": "Walmart",
-    "KO": "Coca-Cola"
 }
 
 def fetch_weekly_data(symbol):
