@@ -46,8 +46,7 @@ assets = {
     "CRWD": "CrowdStrike",
     "MSFT": "Microsoft",
     "AMD": "Advanced Micro Devices",
-     "GOOGL": "Alphabet (Class A)",
-    "GOOG": "Alphabet (Class C)",
+    "GOOGL": "Alphabet (Class A)",
     "AMZN": "Amazon"
 }
 
