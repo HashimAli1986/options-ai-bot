@@ -31,7 +31,6 @@ def send_telegram_message(text):
         print(f"Telegram Error: {e}")
 
 assets = {
-    "^GSPC": "S&P 500",
     "MSTR": "MicroStrategy",
     "APP": "AppLovin",
     "AVGO": "Broadcom",
