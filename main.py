@@ -31,6 +31,7 @@ def send_telegram_message(text):
         print(f"Telegram Error: {e}")
 
 assets = {
+    "^GSPC": "S&P 500",
     "MSTR": "MicroStrategy",
     "APP": "AppLovin",
     "AVGO": "Broadcom",
@@ -44,11 +45,7 @@ assets = {
     "LLY": "Eli Lilly",
     "CRWD": "CrowdStrike",
     "MSFT": "Microsoft",
-    "AMD": "Advanced Micro Devices",
-    "NVDA": "NVIDIA",
-    "GOOGL": "Alphabet (Class A)",
-    "GOOG": "Alphabet (Class C)",
-    "AMZN": "Amazon",
+    "AMD": "Advanced Micro Devices"
 }
 
 def fetch_weekly_data(symbol):
