@@ -65,7 +65,6 @@ assets = {
     "WMT": "Walmart",
     "KO": "Coca-Cola"
 }
-
 def fetch_weekly_data(symbol):
     try:
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=5y&interval=1wk"
